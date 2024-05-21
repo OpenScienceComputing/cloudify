@@ -31,7 +31,12 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     dsdict={}
     cat=intake.open_catalog("https://gitlab.dkrz.de/data-infrastructure-services/era5-kerchunks/-/raw/main/main.yaml")
     ds=cat["pressure-level_analysis_daily"].to_dask()
-    ds=ds.apply_ufunc(compress_data)
+    ds=xr.apply_ufunc(
+            compress_data,
+            ds,
+            dask="parallelized",
+            keep_attrs="drop_conflicts"
+            )
     dsdict["pressure-level_analysis_daily"]=ds
     #collection = xp.Rest([], cache_kws=dict(available_bytes=0))
     #collection.register_plugin(DynamicKerchunk())
