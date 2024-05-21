@@ -1,0 +1,13 @@
+stages:
+  - build
+
+build:
+  stage: build
+  script:
+    - chmod 777 test/ci.sh && ./test/ci.sh
+  tags:
+    - conda
+  artifacts:
+    paths:
+      - logs
+
