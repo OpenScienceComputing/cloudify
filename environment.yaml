@@ -9,5 +9,7 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
+  - eccodes
+  - scipy
   - pip:
     - git+https://gitlab.dkrz.de/data-infrastructure-services/cloudify.git#egg=cloudify

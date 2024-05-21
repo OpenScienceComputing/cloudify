@@ -4,7 +4,6 @@
  cartopy
  dask
  distributed
- eccodes
  fsspec
  gribscan
  holoviews
