@@ -11,7 +11,7 @@ dependencies:
   - openssl
   - eccodes
   - scipy
-  - xpublish_intake
   - xpublish-opendap
-    #  - pip:
+  - pip:
+    - xpublish_intake
     #    - git+https://gitlab.dkrz.de/data-infrastructure-services/cloudify.git#egg=cloudify
