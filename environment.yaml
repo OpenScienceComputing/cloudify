@@ -1,32 +1,32 @@
-name: xpublish
+name: cloudify
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - xpublish
-  - fsspec
-  - intake-xarray
+  - python==3.11
   - aiohttp
+  - asyncio
+  - cartopy
+  - dask
+  - distributed
+  - fsspec
+  - gribscan
+  - holoviews
+  - hvplot
+  - intake
+  - nest_asyncio
+  - numpy
+  - panel
+  - pydantic<2
   - requests
+  - starlette
+  - tqdm
+  - xarray
+  - xpublish
+  - pip
   - pydantic[version='<2']
   - ca-certificates
   - certifi
   - openssl
-  - tqdm
-  - gribscan
-  - asyncio
-  - cartopy
-  - fsspec
-  - holoviews
-  - hvplot
-  - intake
-  - io
-  - asyncio
-  - nest_asyncio
-  - numpy
-  - os
-  - panel
-  - pickle
-  - xarray
-  - starlette
-  - dask
+  - pip:
+    - git+https://gitlab.dkrz.de/data-infrastructure-services/xpublish.git#egg=cloudify
