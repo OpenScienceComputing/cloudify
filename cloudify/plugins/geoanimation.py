@@ -1,5 +1,5 @@
 import os
-from daskhelper import *
+from cloudify.utils.daskhelper import *
 import io
 import xarray as xr
 from xpublish import Plugin, hookimpl, Dependencies

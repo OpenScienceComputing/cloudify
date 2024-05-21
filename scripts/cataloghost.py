@@ -1,8 +1,5 @@
-from plugins/exposer import *
-from plugins/geoanimation import *
-from utils/daskhelper import *
-from plugins/dynamic_datasets import *
-from plugins/dynamic_variables import *
+from cloudify.plugins import *
+from cloudify.utils.daskhelper import *
 import os
 import numcodecs
 import xarray as xr

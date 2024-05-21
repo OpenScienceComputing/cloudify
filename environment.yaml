@@ -1,0 +1,19 @@
+name: xpublish
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - xpublish
+  - fsspec
+  - intake
+  - intake-xarray
+  - aiohttp
+  - requests
+  - pydantic[version='<2']
+  - ca-certificates
+  - certifi
+  - openssl
+  - tqdm
+  - hvplot
+  - panel
+  - gribscan
