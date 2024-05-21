@@ -5,7 +5,6 @@ channels:
 dependencies:
   - xpublish
   - fsspec
-  - intake
   - intake-xarray
   - aiohttp
   - requests
@@ -14,6 +13,20 @@ dependencies:
   - certifi
   - openssl
   - tqdm
-  - hvplot
-  - panel
   - gribscan
+  - asyncio
+  - cartopy
+  - fsspec
+  - holoviews
+  - hvplot
+  - intake
+  - io
+  - asyncio
+  - nest_asyncio
+  - numpy
+  - os
+  - panel
+  - pickle
+  - xarray
+  - starlette
+  - dask

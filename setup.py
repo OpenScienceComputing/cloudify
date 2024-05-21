@@ -1,19 +1,13 @@
 from setuptools import setup, find_packages
 
+def read_requirements():
+    with open('requirements.txt') as f:
+        return f.read().splitlines()
 setup(
     name='cloudify',  # The name of your package
     version='0.1.0',  # The initial release version
     packages=find_packages(),  # Automatically find packages in your project
-#    scripts=['myscript.py'],  # The standalone scripts to be installed
-    install_requires=[
-        # List your project's dependencies here.
-        # Example: 'numpy', 'requests',
-    ],
- #   entry_points={
- #       'console_scripts': [
- #           'myscript=myscript:main',  # Create a command line entry point
- #       ],
- #   },
+    install_requires=read_requirements(),
     author='Fabian Wachsmann',
     description='Xpublish plugins and apps for hosting lustre data via Open stack cloud vm',
     long_description=open('README.md').read(),

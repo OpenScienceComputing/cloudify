@@ -1,4 +1,3 @@
-conda install -c conda-forge micromamba -y
-micromamba env create -f environment.yaml -y
-source activate /root/micromamba/envs/xpublish
+conda install -c conda-forge pip -y
+pip install .
 python src/cataloghost.py > logs/log
