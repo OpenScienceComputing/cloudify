@@ -9,6 +9,7 @@
  holoviews
  hvplot
  intake<2
+ intake-xarray
  nest_asyncio
  numpy
  panel
