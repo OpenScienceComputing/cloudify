@@ -1,20 +1,20 @@
 # requirements.txt
- aiohttp
+ aiohttp 
  asyncio
- cartopy
+ cartopy # for geoanimation
  dask
  distributed
- fastparquet
+ fastparquet # for intake accesss
  fsspec
- gribscan
- holoviews
- hvplot
- intake<2
- intake-xarray
+ gribscan # for grib
+ holoviews # for geoanimation
+ hvplot # for geoanimation
+ intake<2 # for intake access
+ intake-xarray # for intake access
  nest_asyncio
- numpy
- panel
- pydantic<2
+ numpy # for compression
+ panel # for geoanimation
+ pydantic<2 # for intake access
  requests
  starlette
  tqdm
