@@ -38,32 +38,47 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
             keep_attrs="drop_conflicts"
             )
     dsdict["pressure-level_analysis_daily"]=ds
-    #collection = xp.Rest([], cache_kws=dict(available_bytes=0))
-    #collection.register_plugin(DynamicKerchunk())
-    collection = xp.Rest(dsdict,cache_kws=dict(available_bytes=1000000000))    
-    #collection.register_plugin(DynamicKerchunk())
-    collection.register_plugin(DynamicAdd())
-    collection.register_plugin(FileServe())
-    collection.register_plugin(PlotPlugin())
 
     stop_thread = False
 
     def blocking_function():
+        while True:
+            collection = xp.Rest(dsdict,cache_kws=dict(available_bytes=1000000000))
+            #collection.register_plugin(DynamicKerchunk())
+            collection.register_plugin(DynamicAdd())
+            collection.register_plugin(FileServe())
+            collection.register_plugin(PlotPlugin())
+            collection.serve(host="0.0.0.0", port=9000)
+
+async def run_blocking_function_for_duration(duration):
+    loop = asyncio.get_running_loop()
+    # Use a ThreadPoolExecutor to run the blocking function in a separate thread
+    with ThreadPoolExecutor() as pool:
+        # Schedule the blocking function to run in a separate thread
+        future = loop.run_in_executor(pool, blocking_function)
+        # Wait for the specified duration
+        await asyncio.sleep(duration)
+        # Cancel the future to stop the blocking function
+        future.cancel()
+
+    stop_thread=False
+    def blocking_function():
         while not stop_thread:
             collection.serve(host="0.0.0.0", port=9000)
 
-# Create a thread for the blocking function
+    # Create a thread for the blocking function
     thread = threading.Thread(target=blocking_function)
-
-# Start the thread
+    
+    # Start the thread
     thread.start()
-
-# Block the main thread for 3 seconds
+    
+    # Block the main thread for 3 seconds
     time.sleep(3)
-
-# Set the flag to stop the thread
+    
+    # Set the flag to stop the thread
     stop_thread = True
-
-# Optionally join the thread if you need to wait for it to finish
+    
+    # Optionally join the thread if you need to wait for it to finish
     thread.join()
+
 
