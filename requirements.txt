@@ -4,6 +4,7 @@
  cartopy
  dask
  distributed
+ fastparquet
  fsspec
  gribscan
  holoviews
