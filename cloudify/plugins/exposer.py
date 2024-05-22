@@ -4,22 +4,25 @@ from xpublish import Plugin, hookimpl, Dependencies
 from typing import Sequence
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
-from fastapi.responses import FileResponse #, HTMLResponse,RedirectResponse
+from fastapi.responses import FileResponse  # , HTMLResponse,RedirectResponse
+
 
 class FileServe(Plugin):
-    name: str = 'FileServe'
+    name: str = "FileServe"
 
-    app_router_prefix: str = '/static'
-    app_router_tags: Sequence[str] = ['get_file']
+    app_router_prefix: str = "/static"
+    app_router_tags: Sequence[str] = ["get_file"]
 
     @hookimpl
     def app_router(self, deps: Dependencies):
-        router = APIRouter(prefix=self.app_router_prefix, tags=list(self.app_router_tags))
+        router = APIRouter(
+            prefix=self.app_router_prefix, tags=list(self.app_router_tags)
+        )
 
-        @router.get('/{staticfile:path}')
+        @router.get("/{staticfile:path}")
         async def get_partial_file(staticfile: str, request: Request):
-            trunk="/work/bm1344/DKRZ"
-            file_path=os.path.join(trunk, staticfile)
+            trunk = "/work/bm1344/DKRZ"
+            file_path = os.path.join(trunk, staticfile)
             if not os.path.isfile(file_path):
                 return None
 
@@ -63,7 +66,11 @@ class FileServe(Plugin):
                     yield data
                     remaining_bytes -= len(data)
 
-            return StreamingResponse(file_generator(), headers=headers, status_code=status_code, media_type="application/octet-stream")
+            return StreamingResponse(
+                file_generator(),
+                headers=headers,
+                status_code=status_code,
+                media_type="application/octet-stream",
+            )
 
         return router
-
