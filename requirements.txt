@@ -3,7 +3,6 @@
  cartopy # for geoanimation
  dask==2023.7.0
  distributed
- eccodes==2.33.0
  fastparquet # for intake accesss
  fsspec
  gribscan # for grib
