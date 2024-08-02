@@ -17,7 +17,7 @@ environment:
     - echo "Creating an environment"
     - conda env create -f environment.yaml -y
     - source activate $CONDA_ENV_NAME
-    - pip install -U .
+#    - pip install -U .
     - conda env export -n $CONDA_ENV_NAME >spec-file.yaml  # Save the environment specifications
   artifacts:
     paths:
