@@ -18,7 +18,7 @@ environment:
     - echo "Creating an environment"
     - conda env create -f environment.yaml -y
     - source activate $CONDA_ENV_NAME
-    - pip uninstall cloudify
+    - pip uninstall cloudify -y
 #    - pip install -U .
     - conda env export -n $CONDA_ENV_NAME >spec-file.yaml  # Save the environment specifications
   artifacts:
