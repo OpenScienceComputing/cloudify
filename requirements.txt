@@ -2,7 +2,7 @@
  aiohttp 
  cartopy # for geoanimation
  dask
- distributed==2023.7.0
+ distributed
  fastparquet # for intake accesss
  fsspec
  gribscan # for grib
@@ -10,7 +10,7 @@
  hvplot # for geoanimation
  intake<2 # for intake access
  intake-xarray # for intake access
- nest_asyncio==1.5.8
+ nest_asyncio
  numpy # for compression
  panel # for geoanimation
  pydantic<2 # for intake access
