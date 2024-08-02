@@ -1,7 +1,7 @@
 # requirements.txt
  aiohttp 
  cartopy # for geoanimation
- dask
+ dask==2023.7.0
  distributed
  fastparquet # for intake accesss
  fsspec
@@ -10,7 +10,7 @@
  hvplot # for geoanimation
  intake<2 # for intake access
  intake-xarray # for intake access
- nest_asyncio
+ nest_asyncio==1.5.8
  numpy # for compression
  panel # for geoanimation
  pydantic<2 # for intake access
