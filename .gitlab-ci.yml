@@ -8,7 +8,7 @@ variables:
 # Define common setup steps using a YAML anchor
 .common-conda-setup: &common-conda-setup
   before_script:
-    - conda create --name $CONDA_ENV_NAME --file spec-file.txt -y
+    - conda env create --name $CONDA_ENV_NAME --file spec-file.yaml -y
     - source activate $CONDA_ENV_NAME
 
 environment:
@@ -18,10 +18,10 @@ environment:
     - conda env create -f environment.yaml -y
     - source activate $CONDA_ENV_NAME
     - pip install -U .
-    - conda list --explicit > spec-file.txt  # Save the environment specifications
+    - conda env export --explicit -n $CONDA_ENV_NAME spec-file.yaml  # Save the environment specifications
   artifacts:
     paths:
-      - spec-file.txt  # Save the environment specifications as an artifact
+      - spec-file.yaml  # Save the environment specifications as an artifact
   tags:
     - conda
 
