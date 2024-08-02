@@ -31,7 +31,8 @@ test:
   dependencies:
     - environment
   script:
-    - chmod 777 test/test.sh && ./test/test.sh
+    - cd test
+    - chmod 777 test.sh && ./test.sh
   tags:
     - conda
   artifacts:
