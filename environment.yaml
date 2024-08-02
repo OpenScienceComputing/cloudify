@@ -9,7 +9,7 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
-  - eccodes==2.33.0
+  - conda-forge::eccodes
   - scipy
   - xpublish-opendap
   - pip:
