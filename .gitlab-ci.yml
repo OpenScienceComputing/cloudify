@@ -2,18 +2,34 @@ stages:
   - build
   - test
 
-build:
+variables:
+  CONDA_ENV_NAME: cloudify
+
+# Define common setup steps using a YAML anchor
+.common-conda-setup: &common-conda-setup
+  before_script:
+    - conda create --name $CONDA_ENV_NAME --file spec-file.txt -y
+    - source activate $CONDA_ENV_NAME
+
+environment:
   stage: build
   script:
-    - chmod 777 install.sh && ./install.sh
-  tags:
-    - conda
+    - echo "Creating an environment"
+    - conda env create -f environment.yaml -y
+    - source activate $CONDA_ENV_NAME
+    - pip install -U .
+    - conda list --explicit > spec-file.txt  # Save the environment specifications
   artifacts:
     paths:
-      - logs
+      - spec-file.txt  # Save the environment specifications as an artifact
+  tags:
+    - conda
 
 test:
+  <<: *common-conda-setup
   stage: test
+  dependencies:
+    - install
   script:
     - chmod 777 test/test.sh && ./test/test.sh
   tags:
