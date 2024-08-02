@@ -29,7 +29,7 @@ test:
   <<: *common-conda-setup
   stage: test
   dependencies:
-    - install
+    - environment
   script:
     - chmod 777 test/test.sh && ./test/test.sh
   tags:
