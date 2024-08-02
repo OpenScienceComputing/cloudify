@@ -3,7 +3,7 @@
  asyncio
  cartopy # for geoanimation
  dask
- distributed
+ distributed==2024.6.0
  fastparquet # for intake accesss
  fsspec
  gribscan # for grib
