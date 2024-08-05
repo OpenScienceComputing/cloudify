@@ -12,7 +12,7 @@
  intake<2 # for intake access
  intake-xarray # for intake access
  nest_asyncio==1.5.8
- numpy # for compression
+ numpy # for compression, compatibility with distributed
  panel # for geoanimation
  pydantic<2 # for intake access
  requests
