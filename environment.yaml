@@ -15,4 +15,5 @@ dependencies:
   - eccodes
   - pip:
     - xpublish_intake
-    - git+https://gitlab.dkrz.de/data-infrastructure-services/cloudify.git#egg=cloudify does not work because it forces an old eccodes version
+    - git+https://gitlab.dkrz.de/data-infrastructure-services/cloudify.git#egg=cloudify
+# does not work because it forces an old eccodes version
