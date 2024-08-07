@@ -3,6 +3,7 @@
  cartopy # for geoanimation
  dask==2023.7.0
  distributed
+ eccodes
  fastparquet # for intake accesss
  fsspec
  geoviews # for geoanimation
@@ -20,3 +21,4 @@
  tqdm
  xarray
  xpublish
+ 
