@@ -36,8 +36,12 @@ def xarray_to_stac_item(ds):
     xid = ds.attrs.get('_xpublish_id', 'No id')
     keywords = xid.split('.')
     datetimeattr=datetime.now().isoformat()
-    start_datetime = ds.attrs.get('time_min', None).split('.')[0]+'Z' #datetime.now().isoformat())
-    end_datetime = ds.attrs.get('time_max', None).split('.')[0]+'Z' #datetime.now().isoformat())
+    start_datetime = ds.attrs.get('time_min', None) #datetime.now().isoformat())
+    end_datetime = ds.attrs.get('time_max', None) #datetime.now().isoformat())
+    if start_datetime:
+        start_datetime = start_datetime.split('.')[0]+'Z'
+    if end_datetime:
+        end_datetime = end_datetime.split('.')[0]+'Z'
     lonmin=-180
     latmin=-90
     lonmax=180
