@@ -88,7 +88,7 @@ def xarray_to_stac_item(ds):
     description = ds.attrs.get("description", "No description")
     xid = ds.attrs.get("_xpublish_id", "No id")
     keywords = xid.split(".")
-    datetimeattr = datetime.now().isoformat()
+    datetimeattr = datetime.now()#.isoformat()
     start_datetime = ds.attrs.get("time_min", None)
     if start_datetime:
         start_datetime = (
@@ -128,7 +128,7 @@ def xarray_to_stac_item(ds):
             ]
         ],
     }
-    cdate = ds.attrs.get("creation_date", datetimeattr)
+    cdate = ds.attrs.get("creation_date", datetimeattr.isoformat())
     providers = [copy(PROVIDER_DEFAULT)]
     creator_inst_id = ds.attrs.get("institution_id", None)
     if not creator_inst_id:
@@ -205,6 +205,7 @@ def xarray_to_stac_item(ds):
     )
 
     itemdict = item.to_dict()
+    itemdict["properties"]["datetime"]=datetimeattr.isoformat()
     #    for asset in itemdict["assets"].keys():
     itemdict["links"] = [
         dict(
