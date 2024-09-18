@@ -20,4 +20,5 @@
  tqdm
  xarray
  xpublish
+ pystac
  
