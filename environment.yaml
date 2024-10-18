@@ -1,7 +1,6 @@
 name: cloudify
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python==3.11
   - pip
@@ -9,7 +8,8 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
-  - conda-forge::eccodes
+  - eccodes
+  - python-eccodes
   - scipy
   - xpublish-opendap
   - pip:
