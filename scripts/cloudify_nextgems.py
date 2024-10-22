@@ -13,8 +13,8 @@ DS_ADD = [
 ]
 
 
-def refine_nextgems(iakey, ds, md, desc):
-    ds = reset_encoding_get_mapper(iakey, ds, desc=desc)
+def refine_nextgems(mapper_dict, iakey, ds, md, desc):
+    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc)
     ds = adapt_for_zarr_plugin_and_stac(iakey, ds)
     ds = set_compression(ds)
     for mdk, mdv in md.items():
@@ -23,10 +23,10 @@ def refine_nextgems(iakey, ds, md, desc):
     for mdk, mdv in desc["metadata"].items():
         if not mdk in ds.attrs:
             ds.attrs[mdk] = mdv
-    return ds
+    return mapper_dict, ds
 
 
-def add_nextgems(dsdict):
+def add_nextgems(mapper_dict, dsdict):
     ngccat = intake.open_catalog(NGC_PROD_CAT)
     md = yaml.safe_load(ngccat.yaml())["sources"]["nextGEMS_prod"]["metadata"]
     for ia in DS_ADD:
@@ -51,13 +51,17 @@ def add_nextgems(dsdict):
                     )
                     try:
                         dsdict[iakey] = ngccat[ia](**comb, chunks="auto").to_dask()
-                        dsdict[iakey] = refine_nextgems(iakey, dsdict[iakey], md, desc)
+                        mapper_dict, dsdict[iakey] = refine_nextgems(
+                            mapper_dict, iakey, dsdict[iakey], md, desc
+                        )
                     except Exception as e:
                         print(e)
                         pass
         else:
             iakey = "nextgems." + ".".join(ia.split(".")[1:])
             dsdict[iakey] = ngccat[ia](chunks="auto").to_dask()
-            dsdict[iakey] = refine_nextgems(iakey, dsdict[iakey], md, desc)
+            mapper_dict, dsdict[iakey] = refine_nextgems(
+                mapper_dict, iakey, dsdict[iakey], md, desc
+            )
     print(dsdict.keys())
-    return dsdict
+    return mapper_dict, dsdict

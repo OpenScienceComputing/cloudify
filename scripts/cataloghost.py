@@ -26,13 +26,6 @@ nest_asyncio.apply()
 from intake.config import conf
 
 conf["cache_disabled"] = True
-STORAGE_OPTIONS = dict(
-    #        remote_protocol="file",
-    lazy=True,
-    cache_size=0
-    #        skip_instance_cache=True,
-    #        listings_expiry_time=0
-)
 L_DASK = True
 L_NEXTGEMS = True
 L_ERA5 = False
@@ -124,7 +117,7 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     hostids += find_data_sources(cat["observations.ERA5.era5-dkrz"])
     dsdict = {}
     if L_NEXTGEMS:
-        dsdict = add_nextgems(dsdict)
+        mapper_dict, dsdict = add_nextgems(mapper_dict, dsdict)
     for dsid in hostids:
         desc = None
         listref = False
@@ -217,7 +210,9 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
                     compress_data, ds, dask="parallelized", keep_attrs="drop_conflicts"
                 )
             else:
-                ds = reset_encoding_get_mapper(dsid, ds, desc=desc)
+                mapper_dict, ds = reset_encoding_get_mapper(
+                    mapper_dict, dsid, ds, desc=desc
+                )
                 for var in ds.data_vars:
                     ds[var].encoding["filters"] = numcodecs.BitRound(keepbits=12)
         if not "grid" in dsid:
@@ -231,7 +226,9 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
                 dsdict[newid] = dss
         else:
             if L_DASK:
-                ds = reset_encoding_get_mapper(dsid, ds, desc=desc)
+                mapper_dict, ds = reset_encoding_get_mapper(
+                    mapper_dict, dsid, ds, desc=desc
+                )
             ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
             dsdict[dsid] = ds
     kp = KerchunkPass()

@@ -2,8 +2,16 @@ import numcodecs
 import intake
 import fsspec
 import xarray as xr
-import datetime
+from datetime import datetime
 from copy import deepcopy as copy
+
+STORAGE_OPTIONS = dict(
+    #        remote_protocol="file",
+    lazy=True,
+    cache_size=0
+    #        skip_instance_cache=True,
+    #        listings_expiry_time=0
+)
 
 INSTITUTE_KEYS = [
     "institution_id",
@@ -46,8 +54,7 @@ def find_data_sources(catalog, name=None):
     return data_sources
 
 
-def reset_encoding_get_mapper(dsid, ds, desc=None):
-    global mapper_dict
+def reset_encoding_get_mapper(mapper_dict, dsid, ds, desc=None):
     sp = None
     if "source" in ds.encoding:
         sp = ds.encoding["source"]
@@ -64,7 +71,7 @@ def reset_encoding_get_mapper(dsid, ds, desc=None):
             use_options.update(desc["args"].get("storage_options", {}))
         mapper_dict[sp] = fsspec.get_mapper(sp, **use_options)
         ds.encoding["source"] = sp
-    return ds
+    return mapper_dict, ds
 
 
 def adapt_for_zarr_plugin_and_stac(dsid, ds):
