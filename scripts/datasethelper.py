@@ -3,6 +3,7 @@ import intake
 import fsspec
 import xarray as xr
 import datetime
+from copy import deepcopy as copy
 
 INSTITUTE_KEYS = [
     "institution_id",
