@@ -58,7 +58,7 @@ class PlotPlugin(Plugin):
         for dropvar in ["cell_sea_land_mask", "coast", "bnds"]:
             if dropvar in ds.coords or dropvar in ds.dims:
                 ds = ds.drop(dropvar)
-        keeplist = ["lat", "lon", "time", "i", "j"]
+        keeplist = ["lat", "lon", "time", "i", "j", "rlat", "rlon"]
         if coords:
             keeplist += list(coords.keys())
         droppable = list(set(ds.coords) - set(keeplist))
@@ -92,13 +92,13 @@ class PlotPlugin(Plugin):
             #                ds=None
             #            else:
             if "time" in ds[var_name].dims:
-                ds = ds.isel({"time": range(-12, -1)})
+                ds = ds.isel({"time": range(-12, 0)})
         else:
             if "time" in coords.keys():
                 ds = ds.isel(time=range(coords["time"][0], coords["time"][1]))
                 del coords["time"]
             elif "time" in ds[var_name].dims:
-                ds = ds.isel({"time": range(-12, -1)})
+                ds = ds.isel({"time": range(-12, 0)})
             coords_to_load = [a for a in coords.keys() if ds[a].chunks != None]
         return ds, coords_to_load
 
@@ -237,7 +237,7 @@ class PlotPlugin(Plugin):
             html_bytes = io.BytesIO()
             # plot = await client.submit(ds.hvplot,
             # plot = client.compute(ds.hvplot,#(
-            if "lon" not in ds.dims:
+            if "lon" not in ds.dims and not "rlon" in ds.dims:
                 plot = ds.hvplot(
                     kind="scatter",
                     hover=False,
@@ -256,8 +256,9 @@ class PlotPlugin(Plugin):
                     #                    oceanopts.update(width=1441)
                     plot = ds.hvplot(kind=kind, project=True, **plotopts, **oceanopts)
                 else:
-                    print("printed")
                     nooceanopts = copy(self.hvplotopts)
+                    if kind == "quadmesh":
+                        del plotopts["c"]
                     plot = ds.hvplot(
                         kind=kind,
                         #                        rasterize=True,
