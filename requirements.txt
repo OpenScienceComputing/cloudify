@@ -21,4 +21,6 @@
  xarray
  xpublish
  pystac
+ xpublish_intake
+ fastapi==0.112.0
  
