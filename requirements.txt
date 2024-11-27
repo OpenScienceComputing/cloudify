@@ -5,6 +5,8 @@
  distributed
  fastparquet # for intake accesss
  fsspec
+ datashader # for geoanimation
+ spatialpands # for geoanimation, datashader
  geoviews # for geoanimation
  gribscan # for grib
  holoviews # for geoanimation
