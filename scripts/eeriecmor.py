@@ -28,6 +28,7 @@ L_DASK = True
 L_NEXTGEMS = False
 L_ERA5 = False
 WHITELIST_MODEL="icon-esm-er.eerie-control-1950.v20240618"
+WHITELIST_MODEL="ifs-fesom2-sr.hist-1950.v20240304"
 mapper_dict = {}
 
 # CATALOG_FILE="/work/bm1344/DKRZ/intake/dkrz_eerie_esm.yaml"
@@ -169,7 +170,7 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         if "d" in ds.data_vars:
             ds = ds.rename(d="testd")
 
-        if "fesom" in dsid:
+        if "fesom" in dsid :
             if not L_DASK:
                 continue
             chunk_dict = dict(
@@ -202,8 +203,9 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         ]
         if to_coords:
             ds = ds.set_coords(to_coords)
-        # if dsid.startswith("ifs-amip"):
-        #    ds = ds.rename({'value':'latlon'}).set_index(latlon=("lat","lon")).unstack("latlon")
+        if dsid.startswith("ifs-") and "gr025" in dsid and "value" in ds.dims:
+            ds = ds.reset_encoding()
+            ds = ds.rename({'value':'latlon'}).set_index(latlon=("lat","lon")).unstack("latlon")
         if "native" in dsid and not "grid" in dsid:
             print("lossy")
             if L_DASK:
@@ -226,12 +228,13 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
                 dss = adapt_for_zarr_plugin_and_stac(dsid, dss)
                 dsdict[newid] = dss
         else:
-            if L_DASK:
-                mapper_dict, ds = reset_encoding_get_mapper(
-                    mapper_dict, dsid, ds, desc=desc
-                )
+#            if L_DASK:
+#                mapper_dict, ds = reset_encoding_get_mapper(
+#                    mapper_dict, dsid, ds, desc=desc
+#                )
             ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
             dsdict[dsid] = ds
+    dsdict["ifs-fesom2-sr.hist-1950.v20240304.atmos.gr025.2D_monthly_avg"]=dsdict["ifs-fesom2-sr.hist-1950.v20240304.atmos.gr025.2D_daily_avg"].resample(time="1M").mean()
     kp = KerchunkPass()
     kp.mapper_dict = mapper_dict
     # collection = xp.Rest([], cache_kws=dict(available_bytes=0))
@@ -252,4 +255,4 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     # collection.register_plugin(FileServe())
     # collection.register_plugin(PlotPlugin())
 
-    collection.serve(host="0.0.0.0", port=8008)
+    collection.serve(host="0.0.0.0", port=80)
