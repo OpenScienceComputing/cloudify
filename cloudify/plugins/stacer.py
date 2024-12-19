@@ -1,4 +1,5 @@
 from typing import Sequence
+from dask.array.core import Array as DASKARRAY
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish.utils.api import JSONResponse, DATASET_ID_ATTR_KEY
 import xarray as xr
@@ -28,9 +29,9 @@ PROVIDER_DEFAULT = dict(
     url="https://dkrz.de",
 )
 ALTERNATE_KERCHUNK = dict(
-    kerchunk={
-        "name": "kerchunk",
-        "description": "Accessed binary data is as stored on disk via kerchunk",
+    processed={
+        "name": "Processed",
+        "description": "Server-side on-the-fly rechunked and unifromly encoded data",
     }
 )
 STAC_EXTENSIONS = [
@@ -41,19 +42,9 @@ STAC_EXTENSIONS = [
 
 XARRAY_ITEM = {"xarray:open_kwargs": dict(consolidated="true")}
 EERIE_DESC = """
-Earth System Model Simulation output of the [EERIE project](https://eerie-project.eu/).
+# Items of the eerie.cloud
 
-This project, running from January 2023 to December 2026,
-will reveal and quantify the role of ocean mesoscale processes
-in shaping the climate trajectory over seasonal to centennial time scales.
-To this end EERIE will develop a new generation of Earth System Models (ESMs)
-that are capable of explicitly representing a crucially important,
-yet unexplored regime of the Earth system – the ocean mesoscale.
-Leveraging the latest advances in science and technology,
-EERIE will substantially improve the ability of such ESMs to faithfully
-represent the centennial-scale evolution of the global climate,
-especially its variability, extremes and
-how tipping points may unfold under the influence of the ocean mesoscale.
+DKRZ hosts a data server named ‘eerie.cloud’ for global high resolution Earth System Model simulation output stored at the German Climate Computing Center (DKRZ). This was developped within the EU project EERIE. Eerie.cloud makes use of the python package xpublish. Xpublish is a plugin for xarray (Hoyer, 2023) which is widely used in the Earth System Science community. It serves ESM output formatted as zarr (Miles, 2020) via a RestAPI based on FastAPI. Served in this way, the data imitates cloud-native data (Abernathey, 2021) and features many capabilities of cloud-optimized data.
 
 [Imprint](https://www.dkrz.de/en/about-en/contact/impressum) and
 [Privacy Policy](https://www.dkrz.de/en/about-en/contact/en-datenschutzhinweise).
@@ -67,20 +58,30 @@ TECHDOC = pystac.Asset(
 )
 
 
-def create_stac_eerie_collection():
+def create_stac_collection():
     start = datetime(1850, 1, 1)
     end = datetime(2101, 1, 1)
     col = pystac.Collection(
-        id="eerie",
-        title="EERIE data in Zarr format",
+        id="eerie-cloud-all",
+        title="ESM data from DKRZ in Zarr format",
         description=EERIE_DESC,
         stac_extensions=STAC_EXTENSIONS,
-        href=HOST + "stac-collection-eerie.json",
+        href=HOST + "stac-collection-all.json",
         extent=pystac.Extent(
             spatial=pystac.SpatialExtent([-180, -90, 180, 90]),
             temporal=pystac.TemporalExtent(intervals=[start, end]),
         ),
-        keywords=["EERIE", "cloud", "ICON", "IFS", "FESOM", "NEMO", "HadGEM"],
+        keywords=[
+            "EERIE",
+            "cloud",
+            "ICON",
+            "NextGEMs",
+            "ERA5",
+            "IFS",
+            "FESOM",
+            "NEMO",
+            "HadGEM",
+        ],
         providers=[pystac.Provider(PROVIDER_DEFAULT)],
         assets=dict(doc=copy(TECHDOC)),
     )
@@ -126,10 +127,11 @@ def xarray_to_stac_item(ds):
         )
     if not "bbox" in ds.attrs and all(a in ds.variables for a in ["lon", "lat"]):
         try:
-            lonmin = ds["lon"].min().values[()]
-            latmin = ds["lat"].min().values[()]
-            lonmax = ds["lon"].max().values[()]
-            latmax = ds["lat"].max().values[()]
+            if type(ds["lon"].data) != DASKARRAY and type(ds["lat"].data) != DASKARRAY:
+                lonmin = ds["lon"].min().values[()]
+                latmin = ds["lat"].min().values[()]
+                lonmax = ds["lon"].max().values[()]
+                latmax = ds["lat"].max().values[()]
         except:
             pass
         ds.attrs["bbox"] = [lonmin, latmin, lonmax, latmax]
@@ -221,24 +223,36 @@ def xarray_to_stac_item(ds):
         "No of data variables": str(len(ds.data_vars)),
     }
     source_enc = ds.encoding.get("source", None)
+    extra_fields.update(copy(XARRAY_ITEM))
     if source_enc:
         extra_fields["alternate"] = copy(ALTERNATE_KERCHUNK)
-        extra_fields["alternate"]["kerchunk"]["href"] = (
-            HOSTURL + "/" + xid + "/kerchunk"
+        extra_fields["alternate"]["processed"]["href"] = HOSTURL + "/" + xid + "/zarr"
+        extra_fields["alternate"]["processed"][
+            "name"
+        ] = "Rechunked and uniformly compressed data"
+        item.add_asset(
+            "data",
+            Asset(
+                href=HOSTURL + "/" + xid + "/kerchunk",
+                media_type=MediaType.ZARR,
+                roles=["data"],
+                title="Data",
+                description="Raw-encoded source data",
+                extra_fields=extra_fields,
+            ),
         )
-        extra_fields["alternate"]["kerchunk"]["name"] = "Raw data"
-    extra_fields.update(copy(XARRAY_ITEM))
-    item.add_asset(
-        "data",
-        Asset(
-            href=HOSTURL + "/" + xid + "/zarr",
-            media_type=MediaType.ZARR,
-            roles=["data"],
-            title="Data",
-            description="Accessed binary data is processed on server-side",
-            extra_fields=extra_fields,
-        ),
-    )
+    else:
+        item.add_asset(
+            "data",
+            Asset(
+                href=HOSTURL + "/" + xid + "/zarr",
+                media_type=MediaType.ZARR,
+                roles=["data"],
+                title="Data",
+                description="Accessed binary data is processed on server-side",
+                extra_fields=extra_fields,
+            ),
+        )
     item.add_asset(
         "xarray_view",
         Asset(
@@ -279,14 +293,13 @@ def xarray_to_stac_item(ds):
             title="Usage of the eerie.cloud",
         )
     ]
-    if not any(xid.startswith(a) for a in ["nextgems", "era"]):
-        itemdict["links"].append(
-            dict(
-                rel="parent",
-                href=HOSTURL + "/stac-collection-eerie.json",
-                type="application/json",
-            )
+    itemdict["links"].append(
+        dict(
+            rel="collection",
+            href=HOST + "/stac-collection-all.json",
+            type="application/json",
         )
+    )
     #
     # gridlook
     #
@@ -353,19 +366,17 @@ class Stac(Plugin):
         def get_request(request: Request) -> str:
             return request
 
-        @router.get("-collection-eerie.json", summary="Root stac catalog")
+        @router.get("-collection-all.json", summary="Root stac collection")
         def get_eerie_collection(
             request=Depends(get_request), dataset_ids=Depends(deps.dataset_ids)
         ):
-            coldict = create_stac_eerie_collection()
+            coldict = create_stac_collection()
             coldict["links"].append(
                 dict(rel="parent", href=PARENT_CATALOG, type="application/json")
             )
             coldict["providers"][0] = coldict["providers"][0]["name"]
             dslist = json.load(fsspec.open(HOSTURL).open())
             for item in dslist:
-                if any(item.startswith(a) for a in ["nextgems", "era"]):
-                    continue
                 coldict["links"].append(
                     dict(
                         rel="child",
@@ -394,14 +405,12 @@ class Stac(Plugin):
             #            if not all(a in ds.attrs for a in STACKEYS):
             #                raise HTTPException(status_code=404, detail=f"Dataset does not contain all keys needed for a STAC Item")
             if resp is None:
-                try:
-                    item_dict = xarray_to_stac_item(ds)
-                    resp = JSONResponse(item_dict)
-                except:
-                    raise HTTPException(
-                        status_code=404, detail="Could not create a STAC Item"
-                    )
-            cache.put(cache_key, resp, 99999)
+                # try:
+                item_dict = xarray_to_stac_item(ds)
+                resp = JSONResponse(item_dict)
+                # except:
+                #    raise HTTPException(status_code=404, detail="Could not create a STAC Item")
+                cache.put(cache_key, resp, 99999)
             return resp
 
         return router
