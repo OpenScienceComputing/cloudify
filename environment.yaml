@@ -8,8 +8,8 @@ dependencies:
   - ca-certificates
   - certifi
   - openssl
-  - eccodes
-  - python-eccodes
+  - eccodes==2.36.0
+  - python-eccodes==1.7.1
   - scipy
 #    - git+https://gitlab.dkrz.de/data-infrastructure-services/cloudify.git#egg=cloudify
 # does not work because it forces an old eccodes version
