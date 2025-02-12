@@ -10,6 +10,7 @@ import os
 import subprocess
 #import hdf5plugin
 import argparse
+import socket
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -51,7 +52,19 @@ if not os.path.isfile(ssl_keyfile) or not os.path.isfile(ssl_certfile):
 
     subprocess.run(openssl_cmd, check=True)
 
-port=9010
+def is_port_free(port, host="localhost"):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) != 0  # Returns True if the port is free
+
+def find_free_port(start=5000, end=5100, host="localhost"):
+    for port in range(start, end + 1):
+        if is_port_free(port, host):
+            return port
+    return None  # No free ports found
+
+port = find_free_port(9000,9100)
+if not port:
+    raise ValueError("Could not find a free port for service")
 
 nest_asyncio.apply()
 chunks={}
