@@ -12,5 +12,6 @@
 echo $HOSTNAME
 #/scratch/k/k204210/temp/ngc4008_P1D_3.parq
 source activate /work/bm0021/conda-envs/cloudify
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 3650 -nodes -subj "/C=XX/ST=Hamburg/L=Hamburg/O=Test/OU=Test/CN=$HOSTNAME"
 python xpublish_references.py "$@"
 
