@@ -28,7 +28,6 @@ GCLIMIT = 500
 
 
 async def kerchunk_stream_content(data):
-    await asyncio.sleep(0)
     yield data
 
 
@@ -94,8 +93,9 @@ class KerchunkPass(Plugin):
                 #                    media_type='application/octet-stream',
                 #                )
                 else:
+                    data = await asyncio.to_thread(lambda: fsmap[key])
                     resp = StreamingResponse(
-                        kerchunk_stream_content(fsmap[key]),
+                        kerchunk_stream_content(data),
                         media_type="application/octet-stream",
                     )
                 resp.headers["Cache-control"] = "max-age=604800"
