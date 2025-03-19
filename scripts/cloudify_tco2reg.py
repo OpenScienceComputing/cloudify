@@ -37,8 +37,8 @@ def parse_args():
 
 os.environ["HDF5_PLUGIN_PATH"]="/work/ik1017/hdf5plugin/plugins/"
 cwd = os.getcwd()
-ssl_keyfile=f"{cwd}/key.pem"
-ssl_certfile=f"{cwd}/cert.pem"
+#ssl_keyfile=f"{cwd}/key.pem"
+#ssl_certfile=f"{cwd}/cert.pem"
 
 if not os.path.isfile(ssl_keyfile) or not os.path.isfile(ssl_certfile):
     cn = os.uname().nodename  # Equivalent to `!echo $HOSTNAME`
@@ -196,6 +196,6 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     collection.serve(
         host="0.0.0.0",
         port=port,
-        ssl_keyfile=ssl_keyfile,
-        ssl_certfile=ssl_certfile
+        #ssl_keyfile=ssl_keyfile,
+        #ssl_certfile=ssl_certfile
     )
