@@ -40,18 +40,6 @@ cwd = os.getcwd()
 #ssl_keyfile=f"{cwd}/key.pem"
 #ssl_certfile=f"{cwd}/cert.pem"
 
-if not os.path.isfile(ssl_keyfile) or not os.path.isfile(ssl_certfile):
-    cn = os.uname().nodename  # Equivalent to `!echo $HOSTNAME`
-
-    openssl_cmd = [
-            "openssl", "req", "-x509", "-newkey", "rsa:4096",
-            "-keyout", "key.pem", "-out", "cert.pem",
-            "-sha256", "-days", "3650", "-nodes",
-            "-subj", f"/C=XX/ST=Hamburg/L=Hamburg/O=Test/OU=Test/CN={cn}"
-            ]
-
-    subprocess.run(openssl_cmd, check=True)
-
 def is_port_free(port, host="localhost"):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex((host, port)) != 0  # Returns True if the port is free
