@@ -28,6 +28,7 @@ GCLIMIT = 500
 
 
 async def kerchunk_stream_content(data):
+    await asyncio.sleep(0)
     yield data
 
 
@@ -63,8 +64,11 @@ class KerchunkPass(Plugin):
                     status_code=404, detail=f"Dataset ist not kerchunk-passable"
                 )
             # if key in fsmap:
+            #            try:
             if True:
-                if any(a in key for a in [".zmetadata", ".zarray", ".zgroup"]):
+                if any(
+                    a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs"]
+                ):
                     cache_key = (
                         dataset.attrs.get(DATASET_ID_ATTR_KEY, "")
                         + "/kerchunk/"
@@ -73,8 +77,7 @@ class KerchunkPass(Plugin):
                     resp = cache.get(cache_key)
                     if resp is None:
                         zmetadata = json.loads(fsmap[".zmetadata"].decode("utf-8"))
-                        if ".zmetadata" == key:
-                            zmetadata["zarr_consolidated_format"] = 1
+                        zmetadata["zarr_consolidated_format"] = 1
                         if key == ".zgroup":
                             jsondump = json.dumps({"zarr_format": 2}).encode("utf-8")
                         elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
@@ -87,7 +90,7 @@ class KerchunkPass(Plugin):
                             jsondump,
                             media_type="application/octet-stream",
                         )
-                        cache.put(cache_key, resp, 99999)
+                        cache.put(cache_key, resp, 999)
                 #                return StreamingResponse(
                 #                    kerchunk_stream_content(fsmap[key]),
                 #                    media_type='application/octet-stream',
@@ -95,13 +98,13 @@ class KerchunkPass(Plugin):
                 else:
                     data = await asyncio.to_thread(lambda: fsmap[key])
                     resp = StreamingResponse(
-                        kerchunk_stream_content(data),
+                        kerchunk_stream_content(fsmap[key]),
                         media_type="application/octet-stream",
                     )
                 resp.headers["Cache-control"] = "max-age=604800"
                 resp.headers["X-EERIE-Request-Id"] = "True"
                 resp.headers["Last-Modified"] = todaystring
-                resp.headers["Access-Control-Allow-Origin"] = "https://swift.dkrz.de"
+                #                resp.headers['Access-Control-Allow-Origin'] = 'https://swift.dkrz.de'
                 fsmap.fs.dircache.clear()
                 del sp, dataset, key
                 if gctrigger > GCLIMIT:
@@ -110,7 +113,10 @@ class KerchunkPass(Plugin):
                     gctrigger = 0
                 gctrigger += 1
                 return resp
-            # else:
-            #    raise HTTPException(status_code=404, detail=f"Could not find key in lazy reference dict")
+            #            except:
+            else:
+                raise HTTPException(
+                    status_code=404, detail=f"Key error in reference dict"
+                )
 
         return router
