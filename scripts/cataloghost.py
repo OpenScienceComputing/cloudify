@@ -1,11 +1,10 @@
-from exposer import *
 from copy import deepcopy as copy
-from stacer import *
-from geoanimation import *
-from daskhelper import *
-from dynamic_datasets import *
-from kerchunk import *
-from dynamic_variables import *
+from cloudify.plugins.stacer import *
+from cloudify.plugins.geoanimation import *
+from cloudify.utils.daskhelper import *
+from cloudify.plugins.dynamic_datasets import *
+from cloudify.plugins.kerchunk import *
+from cloudify.plugins.dynamic_variables import *
 from cloudify_nextgems import *
 from datetime import datetime
 from datasethelper import *
@@ -28,7 +27,9 @@ from intake.config import conf
 conf["cache_disabled"] = True
 L_DASK = True
 L_NEXTGEMS = True
-L_ERA5 = False
+L_COSMOREA = True
+L_ERA5 = True
+WHITELIST_MODEL="icon-esm-er.eerie-control-1950.v20240618"
 mapper_dict = {}
 
 # CATALOG_FILE="/work/bm1344/DKRZ/intake/dkrz_eerie_esm.yaml"
@@ -88,6 +89,24 @@ def get_options(desc):
     return options
 
 
+def add_cosmorea(mapper_dict, dsdict):
+    cat = intake.open_catalog(
+        "https://swift.dkrz.de/v1/dkrz_4236b71e-04df-456b-8a32-5d66641510f2/catalogs/cosmo-rea/main.yaml"
+    )
+    for dsname in list(cat):
+        ds = cat[dsname].to_dask()
+        desc = cat[dsname].describe()
+        desc["args"]["storage_options"]["remote_protocol"] = "file"
+        dsid = "cosmo-rea-" + dsname
+        if L_DASK:
+            mapper_dict, ds = reset_encoding_get_mapper(
+                mapper_dict, dsid, ds, desc=desc
+            )
+        ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
+        dsdict[dsid] = ds
+    return mapper_dict, dsdict
+
+
 if __name__ == "__main__":  # This avoids infinite subprocess creation
     # client = asyncio.get_event_loop().run_until_complete(get_dask_client())
     if L_DASK:
@@ -95,6 +114,7 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
 
         dask.config.set({"array.slicing.split_large_chunks": False})
         dask.config.set({"array.chunk-size": "100 MB"})
+        print("Start cluster")
         zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())
         # cluster.adapt(
         #        target_duration="0.1s",
@@ -116,9 +136,13 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     print(hostids)
     hostids += find_data_sources(cat["observations.ERA5.era5-dkrz"])
     dsdict = {}
+    if L_COSMOREA:
+        mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict)
     if L_NEXTGEMS:
         mapper_dict, dsdict = add_nextgems(mapper_dict, dsdict)
     for dsid in hostids:
+        if not WHITELIST_MODEL in dsid:
+            continue        
         desc = None
         listref = False
         if not dsid.startswith("era5-dkrz"):
@@ -156,8 +180,12 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
                     continue
                 ds = cat["observations.ERA5"][dsid](**options).to_dask()
             else:
-                if "icon" in dsid and "native" in dsid and "2d_monthly_mean" in dsid:
+                if (
+                    "icon" in dsid and "native" in dsid and "2d_monthly_mean" in dsid
+                ) or "grid" in dsid:
                     options["chunks"] = {}
+                print("Try to open: " + dsid)
+                print(options)
                 ds = cat["model-output"][dsid](**options).to_dask()
         except Exception as e:
             # else:
@@ -168,12 +196,12 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         if "d" in ds.data_vars:
             ds = ds.rename(d="testd")
 
-        if "fesom" in dsid:
+        if "fesom" in dsid:  #            and "ocean" in dsid and "native" in dsid:
             if not L_DASK:
                 continue
             chunk_dict = dict(
-                nod2=1000000, nz1_upper=6, nz1=6, nz_upper=6, nz=6, time=4
-            )
+                nod2=1000000, nz1_upper=6, nz1=6, nz_upper=6, nz=6
+            )  # , time=4)
             keylist = [k for k in chunk_dict.keys() if k not in ds.dims]
             if "heightAboveGround" in ds.variables:
                 ds = ds.drop("heightAboveGround")
@@ -194,13 +222,30 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
                 "lat",
                 "lon",
                 "coast",
-                "time_bnds",
                 "vertices_latitude",
                 "vertices_longitude",
+                "latitude",
+                "longitude",
             ]
         ]
+        more_coords = [
+            a
+            for a in ds.data_vars
+            if ("bnds" in a or "bounds" in a) and a not in to_coords
+        ]
+        to_coords += more_coords
+        for a in to_coords:
+            if "time" in ds[a].dims and a != "time_bnds" and a != "time_bounds":
+                ds[a] = ds[a].isel(time=0)
         if to_coords:
             ds = ds.set_coords(to_coords)
+        if "hadgem" in dsid:
+            other_coords = [a for a in ds.coords if a not in to_coords]
+            other_coords += more_coords
+            for oc in other_coords:
+                if not "time" in oc:
+                    print(oc)
+                    del ds[oc]
         # if dsid.startswith("ifs-amip"):
         #    ds = ds.rename({'value':'latlon'}).set_index(latlon=("lat","lon")).unstack("latlon")
         if "native" in dsid and not "grid" in dsid:
