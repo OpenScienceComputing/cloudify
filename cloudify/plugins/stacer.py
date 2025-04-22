@@ -40,7 +40,10 @@ STAC_EXTENSIONS = [
     "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json",
 ]
 
-XARRAY_ITEM = {"xarray:open_kwargs": dict(consolidated="true")}
+XARRAY_DEF = dict(engine="zarr", chunks="auto")
+XARRAY_ZARR = dict(consolidated=True)
+XARRAY_KERCHUNK = dict(consolidated=False)
+XSO = {"xarray:storage_options": dict(lazy=True)}
 EERIE_DESC = """
 # Items of the eerie.cloud
 
@@ -88,6 +91,20 @@ def create_stac_collection():
     return col.to_dict()
 
 
+def make_json_serializable(obj):
+    """Recursively convert non-JSON serializable values to serializable formats."""
+    if isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, bytes):
+        return obj.decode(errors="ignore")  # Convert bytes to string
+    else:
+        try:
+            json.dumps(obj)  # Test if serializable
+            return obj  # If it works, return as is
+        except (TypeError, OverflowError):
+            return str(obj)  # Convert unsupported types to strings
+
+
 def xarray_to_stac_item(ds):
     # cube
     cube = dict()
@@ -107,7 +124,7 @@ def xarray_to_stac_item(ds):
     description = ds.attrs.get("description", "No description")
     xid = ds.attrs.get("_xpublish_id", "No id")
     keywords = xid.split(".")
-    datetimeattr = datetime.now().isoformat()
+    datetimeattr = datetime.now()  # .isoformat()
     start_datetime = ds.attrs.get("time_min", None)
     if start_datetime:
         start_datetime = (
@@ -165,29 +182,26 @@ def xarray_to_stac_item(ds):
         providers.append(creator)
     description += (
         "\n"
-        + "You can use this dataset in xarray from intake.\n\n"
-        + "On Levante:\n"
-        + "```python\n"
-        + "import intake\n"
-        + "intake.open_catalog(\n"
-        + '    "'
-        + INTAKE_SOURCE
-        + '"\n'
-        + ')["'
-        + xid
-        + '"].to_dask()\n'
-        + "```\n"
-        + "Everywhere else:\n"
-        + "```python\n"
-        + "import intake\n"
-        + "intake.open_stac_item(\n"
-        + '    "'
+        + "You can use this dataset in xarray.\n\n"
+        + "```python"
+        + "\nimport xarray as xr"
+        + "\nimport json"
+        + "\nimport fsspec"
+        + "\nitem=json.load(fsspec.open("
+        + '\n    "'
         + HOSTURL
         + "/"
         + xid
-        + '/stac"\n'
-        + ").data.to_dask()\n"
-        + "```\n"
+        + '/stac"'
+        + "\n).open())"
+        + '\nasset="dkrz-disk"'
+        + '\n#asset="eerie-cloud" # from everywhere else'
+        + "\nxr.open_dataset("
+        + '\n    item["assets"][asset]["href"],'
+        + '\n    **item["assets"][asset]["xarray:open_kwargs"],'
+        + '\n    storage_options=item["assets"][asset].get("xarray:storage_options",None)'
+        + "\n)"
+        + "\n```\n"
     )
 
     properties = {
@@ -223,33 +237,58 @@ def xarray_to_stac_item(ds):
         "No of data variables": str(len(ds.data_vars)),
     }
     source_enc = ds.encoding.get("source", None)
-    extra_fields.update(copy(XARRAY_ITEM))
     if source_enc:
+        XOK = {
+            "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_ZARR),
+        }
+        if source_enc.startswith("reference"):
+            XOK = {
+                "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_KERCHUNK),
+                "xarray:storage_options": copy(XSO),
+            }
+        extra_fields.update(XOK)
+        item.add_asset(
+            "dkrz-disk",
+            Asset(
+                href=source_enc,
+                media_type=MediaType.ZARR,
+                roles=["data"],
+                title="Zarr-access on dkrz",
+                description="Chunk-based access on raw data",
+                extra_fields=copy(extra_fields),
+            ),
+        )
+        extra_fields.pop("xarray:storage_options", None)
+        extra_fields.update(
+            {
+                "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_ZARR),
+            }
+        )
         extra_fields["alternate"] = copy(ALTERNATE_KERCHUNK)
         extra_fields["alternate"]["processed"]["href"] = HOSTURL + "/" + xid + "/zarr"
         extra_fields["alternate"]["processed"][
             "name"
         ] = "Rechunked and uniformly compressed data"
         item.add_asset(
-            "data",
+            "eerie-cloud",
             Asset(
                 href=HOSTURL + "/" + xid + "/kerchunk",
                 media_type=MediaType.ZARR,
                 roles=["data"],
-                title="Data",
-                description="Raw-encoded source data",
+                title="Zarr-access through eerie cloud",
+                description="Chunk-based access on raw-encoded data",
                 extra_fields=extra_fields,
             ),
         )
     else:
         item.add_asset(
-            "data",
+            "EERIE cloud",
             Asset(
                 href=HOSTURL + "/" + xid + "/zarr",
                 media_type=MediaType.ZARR,
                 roles=["data"],
-                title="Data",
-                description="Accessed binary data is processed on server-side",
+                title="Zarr access on uniform zarr data",
+                description="Chunk-based access through eerie cloud server, data is processed on server-side",
                 extra_fields=extra_fields,
             ),
         )
@@ -316,7 +355,7 @@ def xarray_to_stac_item(ds):
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
-        if "ifs-amip" in xid:
+        if ("ifs-amip" in xid or "ifs-fesom2" in xid) and "atmos" in xid:
             griddict["dataset"] = "gr025_descending.zarr"
         else:
             griddict["dataset"] = "gr025.zarr"
@@ -345,6 +384,7 @@ def xarray_to_stac_item(ds):
         ):
             itemdict["properties"][dsatt] = dsattval
 
+    itemdict = make_json_serializable(itemdict)
     return itemdict
 
 
