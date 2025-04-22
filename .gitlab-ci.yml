@@ -9,6 +9,7 @@ variables:
 .common-conda-setup: &common-conda-setup
   before_script:
     - conda env create --name $CONDA_ENV_NAME --file spec-file.yaml -y
+    - export LD_LIBRARY_PATH=/opt/conda/envs/$CONDA_ENV_NAME/lib:$LD_LIBRARY_PATH 
     - source activate $CONDA_ENV_NAME
     - pip install -U .
 
