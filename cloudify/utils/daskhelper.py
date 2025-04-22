@@ -16,7 +16,7 @@ async def get_dask_cluster():
 
     return LocalCluster(
         processes=True,
-        n_workers=2,
-        threads_per_worker=8,
-        memory_limit="16GB",
+        n_workers=8,
+        threads_per_worker=4,
+        memory_limit="32GB",
     )
