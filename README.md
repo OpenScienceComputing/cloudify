@@ -52,7 +52,7 @@ We support both catalog tools [intake v1](https://github.com/intake/intake)
 as they are widely used in the ESM community. 
 The recommended data workflow for clients is depicted in Fig. X.
 
-![](https://pad.gwdg.de/uploads/11823bbd-2c7f-450d-938f-1cf00890dc2b.png =800x600)
+![](https://pad.gwdg.de/uploads/11823bbd-2c7f-450d-938f-1cf00890dc2b.png)
 
 ***Fig. X:*** A sketch of the recommended user data workflow for accessing cloudified data through the "eerie.cloud". 
 First, the user opens a catalog, either intake or stac, where all served datasets are included. 
