@@ -86,9 +86,6 @@ A code snippet for using the item, both on DKRZ's HPC system as well as from eve
 Each item includes links to the two zarr data APIs, 
 the dataset HTML view API as well as other apps that make use of the data, as assets. 
 
-![](https://pad.gwdg.de/uploads/8b699ca8-95ab-4218-b765-c2c9f0c2d3e5.png)
-***Fig. X***: An example stac-item view within the stac-browser.
-
 All items are collected in a overall collection which is served via the
 [stac-collection-all.json](eerie.cloud.dkrz.de/stac-collection-all.json) endpoint. 
 This however does not allow efficient browsing. 
