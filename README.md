@@ -1,93 +1,185 @@
-# xpublish
+# Cloudify
 
+- [Technical description](https://pad.gwdg.de/MmzEY9KEQcOe6y8er62EZw?both)
 
+This repo contains code used for the data server 'km-scale-cloud.dkrz.de' for high resolution Earth System Model simulation output. 
+As a pilot, we host data from experiments produced within the EU project EERIE and stored at the German Climate Computing Center (DKRZ).
 
-## Getting started
+The 'km-scale-cloud' makes use of the python package [xpublish](https://github.com/xpublish-community/xpublish).
+Xpublish is a plugin for xarray (Hoyer, 2023) which is widely used in the Earth System Science community.
+It serves ESM output formatted as zarr (Miles, 2020) via a RestAPI based on FastAPI.
+Served in this way, the data imitates cloud-native data and features many capabilities of cloud-optimized data.
+We explain a workflow implemented at DKRZ which allows to host volumes on the petabyte scale
+as well as chunk-based access to both raw and on-the-fly, server-side post-processed data.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Motivation
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Earth System Model (ESM) output can be provided openly and efficiently by storing it in cloud-storages in cloud-optimized formats. 
+This allows for chunk-based, parallel access via standard protocols like s3 and http to an easily scalable storage resource. 
+However, it can be costful to bring data there: 
+First, one needs to convert data from a source format to a target format which takes efforts by a human. 
+Projects like [pangeo-forge](https://pangeo-forge.readthedocs.io/en/latest/) may simplify this conversion 
+but are not adapted to institutional cloud storage providers. 
+Secondly, the source data often remains on the source storage resulting in data duplication, 
+e.g. if the source data is on a high-performance storage whose properties are needed for further processing. 
 
-## Add your files
+State-of-the-art ESM simulations are highly resolved in both temporal and spatial dimensions 
+resulting in large volumes of model output (O(PB)). 
+Working with this output from remote is highly limited by band-width: 
+E.g., DKRZ only allows for 30GiB/s total uplink that all remote users have to share. 
+This demands for strong data reduction methods including lossy compressions when data is transferred to clients. 
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+At DKRZ, we established a server prototype named **"km-scale-cloud"** 
+to provide efficient data access and offer server-side resources for the global community 
+with the goal to reduce the amount of data to be transmitted. 
+We leaverage the pangeo software stack to design a workflow based on python tools that are well known and widely used
+so that the server solution may be well accepted, understood and commonly extended.
+
+We name this workflow ''*to **cloudify** the ESM data*'': 
+Data is served by the python package xpublish in a way that it mimicks data in the cloud 
+as if it were stored as cloud-optimized zarr data. 
+Such data provision inherits the benefits of the zarr format for users, 
+but in addition can be modified and processed on server-side before transfer by applying xarray. 
+A key feature of *cloudifying* is that no data conversion and transfer to cloud is necesesary, 
+so that it is faster and cheaper in comparison to a data move.
+
+## Usage of the km-scale-cloud
+
+To gain overview of the full content of the data server 
+from a single point of access, we added catalog endpoints which collect the zarr data endpoints of both APIs. 
+We support both catalog tools [intake v1](https://github.com/intake/intake)
+(based on [intake-xarray](https://github.com/intake/intake-xarray)) and [stac](https://github.com/radiantearth/stac-spec) 
+as they are widely used in the ESM community. 
+The recommended data workflow for clients is depicted in Fig. X.
+
+![](https://pad.gwdg.de/uploads/11823bbd-2c7f-450d-938f-1cf00890dc2b.png)
+
+***Fig. X:*** A sketch of the recommended user data workflow for accessing cloudified data through the "eerie.cloud". 
+First, the user opens a catalog, either intake or stac, where all served datasets are included. 
+Second, a served zarr dataset is opened via this catalog. 
+This can either be through the *raw API* or the *dask API*. 
+Third, chunks are retrieved via fsspec from the underlying data lake.
+
+**Intake**
+
+First, we made use of the [xpublish-intake plugin](https://github.com/xpublish-community/xpublish-intake/) 
+to automatically create an intake catalog for all datasets available on the xpublish server. 
+This enables programmatic access:
+
+```python
+import intake
+xpublish_intake_url="https://eerie.cloud.dkrz.de/intake.yaml"
+cat=intake.open_catalog(xpublish_intake_url)
+```
+
+**Stac**
+
+Intake does not provide a pretty user display of catalogs.
+We found that [stac] catalogs can fill this gap so that we developped a stac-plugin.
+Any stac catalogs can be prettily displayed and rendered in a web browser using the [stac-browser](github.com/radiantearth/stac-browser).
+
+For each dataset, a [tac item is served that includes information on temporal and spatial coverage 
+based on the dataset's coordinates. 
+Title and description are generated from on attributes of the dataset. 
+A code snippet for using the item, both on DKRZ's HPC system as well as from everywhere, is also presented in markdown.
+
+Each item includes links to the two zarr data APIs, 
+the dataset HTML view API as well as other apps that make use of the data, as assets. 
+
+All items are collected in a overall collection which is served via the
+[stac-collection-all.json](eerie.cloud.dkrz.de/stac-collection-all.json) endpoint. 
+This however does not allow efficient browsing. 
+We therefore build a overall [stac catalog](https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/catalogs/stac-catalog-eeriecloud.json) for the set-up eerie.cloud which not only points to the *all-items collection* , but furthermore to more structured, hierarchical subcollections. One example is the [EERIE dataset collection](https://raw.githubusercontent.com/eerie-project/intake_catalogues/refs/heads/main/dkrz/disk/stac-templates/catalog-experiments.json) 
+which is itself a collection tree. It contains collections for model-experiment combinations. 
+These collections again contain corresponding items from eerie.cloud. Served in this way, EERIE items become easily browsable. 
+If clients call the root route of the eerie.cloud, they are redirected to a stac-browser's view of the main catalog.
+
+Cloudified data enables efficient and high granular data access 
+that allows the community to develop in-browser data tools, e.g. typescript based. 
+This comprises monitoring and visualisation, but also small analysis use cases.
+
+## Endpoints and Xpublish-plugins
+
+All endpoints can be listed programmatically with python:
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.dkrz.de/data-infrastructure-services/xpublish.git
-git branch -M main
-git push -uf origin main
+import json
+import fsspec
+fast=json.load(fsspec.open("https://eerie.cloud.dkrz.de/openapi.json").open())
+list(fast["paths"].keys())
 ```
 
-## Integrate with your tools
+### Metadata info per xarray dataset
 
-- [ ] [Set up project integrations](https://gitlab.dkrz.de/data-infrastructure-services/xpublish/-/settings/integrations)
+Default xpublish dataset plugin. Endpoints:
 
-## Collaborate with your team
+```
+ '/datasets',
+ '/datasets/{dataset_id}/',
+ '/datasets/{dataset_id}/keys',
+ '/datasets/{dataset_id}/dict',
+ '/datasets/{dataset_id}/info'
+```
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+### Access
 
-## Test and Deploy
 
-Use the built-in continuous integration in GitLab.
+**Zarr Raw**. [Self developed](https://gitlab.dkrz.de/data-infrastructure-services/cloudify/-/tree/main/cloudify/plugins?ref_type=heads). Endpoints:
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```
+ '/datasets/{dataset_id}/kerchunk/{key}',
+```
 
-***
+**Opendap**. Xpublish-opendap plugin. Endpoints
 
-# Editing this README
+```
+ '/datasets/{dataset_id}/opendap.dds',
+ '/datasets/{dataset_id}/opendap.das',
+ '/datasets/{dataset_id}/opendap.dods',
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+**Zarr Dask backed**. Default plugin.  Endpoints:
 
-## Suggestions for a good README
+```
+ '/datasets/{dataset_id}/zarr/.zmetadata',
+ '/datasets/{dataset_id}/zarr/.zgroup',
+ '/datasets/{dataset_id}/zarr/.zattrs',
+ '/datasets/{dataset_id}/zarr/{var}/{chunk}',
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+### Catalogs
 
-## Name
-Choose a self-explaining name for your project.
+**STAC**
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Self defined plugin. Endpoints:
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+``` 
+'/stac-collection-eerie.json',
+'/datasets/{dataset_id}/stac',
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+**Intake**
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Intake-xpublish plugin. Endpoints:
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```
+ '/intake.yaml',
+ '/datasets/{dataset_id}/catalog.yaml',
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+Server-side processing
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+**Plotting**
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+[Self-developed plugin](https://gitlab.dkrz.de/data-infrastructure-services/cloudify/-/tree/main/cloudify/plugins?ref_type=heads). Endpoints:
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```
+ '/datasets/{dataset_id}/plot/{var_name}/{kind}/{cmap}/{selection}'
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+**Diagnostics**
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+[Self-developed plugin](https://gitlab.dkrz.de/data-infrastructure-services/cloudify/-/tree/main/cloudify/plugins?ref_type=heads). Endpoints:
 
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```
+ '/datasets/{dataset_id}/groupby/{variable_name}/{groupby_coord}/{groupby_action}',
