@@ -18,6 +18,7 @@ import fsspec
 
 PARENT_CATALOG = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/catalogs/stac-catalog-eeriecloud.json"
 GRIDLOOK = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/gridlook/index.html"
+GRIDLOOK_HP = "https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html"
 HOST = "https://eerie.cloud.dkrz.de/"
 INTAKE_SOURCE = "https://raw.githubusercontent.com/eerie-project/intake_catalogues/refs/heads/main/dkrz/disk/model-output/main.yaml"
 JUPYTERLITE = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/jupyterlite/index.html"
@@ -110,7 +111,7 @@ def xarray_to_stac_item(ds):
     cube = dict()
     cube["cube:dimensions"] = dict()
     cube["cube:variables"] = dict()
-    for dv in ds.data_vars:
+    for dv in list(ds.variables):
         cube["cube:variables"][dv] = dict(
             type="data",
             dimensions=[*ds[dv].dims],
@@ -227,6 +228,8 @@ def xarray_to_stac_item(ds):
     )
 
     store_dataset_dict = dict(store=HOSTURL, dataset=xid + "/zarr")
+    if ("nextgems" in xid or "dyamond" in xid) and "icon" in xid.lower():
+        store_dataset_dict["dataset"] = xid + "/kerchunk"
     var_store_dataset_dict = dict()
     # Add data variables as assets
     for var_name, var_data in ds.data_vars.items():
@@ -312,10 +315,14 @@ def xarray_to_stac_item(ds):
             description="Web-assembly based analysis platform with access to this item",
         ),
     )
+    gridlook_url = GRIDLOOK
+    if any(b in xid for b in ["healpix", "nextgems", "orcestra"]):
+        if not any(c in xid for c in ["gr025", "native"]):
+            gridlook_url = GRIDLOOK_HP
     item.add_asset(
         "gridlook",
         Asset(
-            href=GRIDLOOK + "#" + HOSTURL + "/" + xid + "/stac",
+            href=gridlook_url + "#" + HOSTURL + "/" + xid + "/stac",
             media_type=MediaType.HTML,
             title="Visualization with gridlook",
             roles=["Visualization"],
@@ -365,7 +372,28 @@ def xarray_to_stac_item(ds):
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
         griddict["dataset"] = "era5.zarr"
 
-    itemdict["default_var"] = list(var_store_dataset_dict.keys())[0]
+    if var_store_dataset_dict:
+        best_choice = next(
+            (
+                a
+                for a in list(var_store_dataset_dict.keys())
+                if a in ["uas", "si", "tas", "10ws", "ws"]
+            ),
+            None,
+        )
+        if not best_choice:
+            best_choice = next(
+                (
+                    a
+                    for a in list(var_store_dataset_dict.keys())
+                    if not any(b in a for b in ["lat", "lon"])
+                ),
+                None,
+            )
+        if not best_choice:
+            print("Oh no best choice")
+            best_choice == list(var_store_dataset_dict.keys())[0]
+        itemdict["default_var"] = best_choice
     itemdict["name"] = title
     itemdict["levels"] = [
         dict(

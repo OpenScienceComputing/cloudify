@@ -12,6 +12,7 @@ import asyncio
 import gc
 import json
 import os
+import numpy as np
 
 from xpublish.dependencies import (
     get_dataset,
@@ -30,6 +31,19 @@ GCLIMIT = 500
 async def kerchunk_stream_content(data):
     await asyncio.sleep(0)
     yield data
+
+
+def clean_json(obj):
+    if isinstance(obj, dict):
+        return {
+            k: clean_json(v)
+            for k, v in obj.items()
+            if v is not None and v is not np.nan
+        }
+    elif isinstance(obj, list):
+        return [clean_json(v) for v in obj]
+    else:
+        return obj
 
 
 class KerchunkPass(Plugin):
@@ -64,8 +78,8 @@ class KerchunkPass(Plugin):
                     status_code=404, detail=f"Dataset ist not kerchunk-passable"
                 )
             # if key in fsmap:
-            #            try:
-            if True:
+            try:
+                #            if True:
                 if any(
                     a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs"]
                 ):
@@ -81,9 +95,13 @@ class KerchunkPass(Plugin):
                         if key == ".zgroup":
                             jsondump = json.dumps({"zarr_format": 2}).encode("utf-8")
                         elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
-                            jsondump = json.dumps(zmetadata["metadata"][key]).encode(
-                                "utf-8"
-                            )
+                            if zmetadata["metadata"].get(key):
+                                cleaned = clean_json(zmetadata["metadata"][key])
+                                jsondump = json.dumps(cleaned).encode("utf-8")
+                            else:
+                                raise HTTPException(
+                                    status_code=404, detail=f"{key} not  found"
+                                )
                         else:
                             jsondump = json.dumps(zmetadata).encode("utf-8")
                         resp = Response(
@@ -113,8 +131,8 @@ class KerchunkPass(Plugin):
                     gctrigger = 0
                 gctrigger += 1
                 return resp
-            #            except:
-            else:
+            except:
+                #            else:
                 raise HTTPException(
                     status_code=404, detail=f"Key error in reference dict"
                 )
