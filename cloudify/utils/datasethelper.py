@@ -142,9 +142,11 @@ def apply_lossy_compression(
 ) -> (dict, xr.Dataset):
     print("lossy")
     if L_DASK:
+        se = ds.encoding["source"]
         ds = xr.apply_ufunc(
             lossy_compress_chunk, ds, dask="parallelized", keep_attrs="drop_conflicts"
         )
+        ds.encoding["source"] = se
     else:
         mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsid, ds)
         for var in ds.data_vars:
@@ -292,8 +294,8 @@ def adapt_for_zarr_plugin_and_stac(dsid, ds):
             + "'"
         )
     if "time" in ds.variables:
-        if ds["time"].attrs.get("_FillValue"):
-            del ds["time"].attrs["_FillValue"]
+        if ds["time"].encoding.get("_FillValue"):
+            del ds["time"].encoding["_FillValue"]
         ds["time"].encoding["dtype"] = "float64"
         ds["time"].encoding["compressor"] = None
         ds.attrs["time_min"] = str(ds["time"].values[0])
