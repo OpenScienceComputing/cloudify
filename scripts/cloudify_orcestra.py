@@ -20,7 +20,9 @@ conf_dict = dict(
 
 def add_orcestra(mapper_dict, dsdict):
     init_dates_trunks = [
-        a for a in sorted(glob.glob(TRUNK + "/*")) if a.split("/")[-1][0] == "0"
+        a
+        for a in sorted(glob.glob(TRUNK + "/*"))
+        if a.split("/")[-1][0] == "0"
         if not "-rerun" in a
     ]
     dsone = None

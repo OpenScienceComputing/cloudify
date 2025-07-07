@@ -83,68 +83,63 @@ def add_nextgems(mapper_dict: dict, dsdict: dict):
 
     ngccat = intake.open_catalog(source_catalog)
 
-    ngc4_md=None
-    
+    ngc4_md = None
+
     try:
         prodcat = intake.open_catalog(published_catalog)
-        ngc4_md = yaml.safe_load(prodcat.yaml())["sources"]["nextGEMS_prod"]["metadata"]        
+        ngc4_md = yaml.safe_load(prodcat.yaml())["sources"]["nextGEMS_prod"]["metadata"]
     except:
         print("wdcc not working")
 
     gr_025 = (
         ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"]
         .to_dask()
-        .reset_coords()[["lat", "lon"]].load()
+        .reset_coords()[["lat", "lon"]]
+        .load()
     )
-    
+
     all_ds = copy(DS_ADD)
     for sim in DS_ADD_SIM:
         for dsn in list(ngccat[sim]):
             all_ds.append(sim + "." + dsn)
-            
-    descdict={}
-                                             
-    localdsdict=get_dataset_dict_from_intake(
-        ngccat, 
-        all_ds, 
+
+    descdict = {}
+
+    localdsdict = get_dataset_dict_from_intake(
+        ngccat,
+        all_ds,
         prefix="nextgems.",
         storage_chunk_patterns=["2048"],
-        drop_vars={
-            "25deg":["lat", "lon"]
-        }
+        drop_vars={"25deg": ["lat", "lon"]},
     )
 
     for dsn in list(localdsdict.keys()):
-        iakey=dsn.replace("-parq","")
-        desckey=iakey.replace('nextgems.','')
-        localdsdict[iakey]=localdsdict.pop(dsn)        
-        
+        iakey = dsn.replace("-parq", "")
+        desckey = iakey.replace("nextgems.", "")
+        localdsdict[iakey] = localdsdict.pop(dsn)
+
         try:
-            descdict[iakey]=ngccat[desckey].describe()
+            descdict[iakey] = ngccat[desckey].describe()
         except:
-            descdict[iakey]=ngccat['.'.join(desckey.split('.')[:-1])].describe()
+            descdict[iakey] = ngccat[".".join(desckey.split(".")[:-1])].describe()
         if "ngc4008" in dsn or "IFS_9-FESOM_5-production" in dsn:
-            descdict[iakey]["metadata"] = ngc4_md                
-            
+            descdict[iakey]["metadata"] = ngc4_md
+
     for ia, ds in localdsdict.items():
-    #for ia in all_ds:
+        # for ia in all_ds:
         print(ia)
         print("gribscan to float")
         ds = gribscan_to_float(ds)
-        mapper_dict, ds = refine_nextgems(
-            mapper_dict, ia, ds, descdict[ia]
-        )
+        mapper_dict, ds = refine_nextgems(mapper_dict, ia, ds, descdict[ia])
         if "25deg" in ia:
             ds.coords["lat"] = gr_025["lat"]
             ds.coords["lon"] = gr_025["lon"]
         print("try to set crs")
         if "crs" in ds.variables:
             if len(str(ds["crs"].attrs.get("healpix_nside", "No"))) >= 4:
-                mapper_dict, ds = apply_lossy_compression(
-                    mapper_dict, ia, ds
-                )
-        elif "healpix" in ia :
-            ds = add_healpix(ia,ds)
-        dsdict[ia]=ds
+                mapper_dict, ds = apply_lossy_compression(mapper_dict, ia, ds)
+        elif "healpix" in ia:
+            ds = add_healpix(ia, ds)
+        dsdict[ia] = ds
     del localdsdict
     return mapper_dict, dsdict
