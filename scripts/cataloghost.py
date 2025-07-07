@@ -10,6 +10,7 @@ from cloudify_era5 import *
 from cloudify_eerie import *
 from cloudify_nextgems import *
 from cloudify_orcestra import *
+import xarray as xr
 from datetime import datetime
 from cloudify.utils.datasethelper import *
 import os
@@ -25,12 +26,12 @@ from intake.config import conf
 
 conf["cache_disabled"] = True
 L_DASK = True
-L_NEXTGEMS = True
-L_ORCESTRA = False
+L_NEXTGEMS = False #True
+L_ORCESTRA = False #True
 L_COSMOREA = False
-L_ERA5 = False
-L_DYAMOND = True
-L_EERIE = True
+L_ERA5 = True #True
+L_DYAMOND = False #True
+L_EERIE = False #True
 mapper_dict = {}
 
 # CATALOG_FILE="/work/bm1344/DKRZ/intake/dkrz_eerie_esm.yaml"
@@ -46,6 +47,7 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         dask.config.set({"array.chunk-size": "100 MB"})
         print("Start cluster")
         zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())
+
         # cluster.adapt(
         #        target_duration="0.1s",
         #        minimum=2,
@@ -61,16 +63,28 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
     dsdict = {}
     if L_COSMOREA:
         mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict)
+        print(f"After COSMO: {len(dsdict)}")
+        print(f"After COSMO: {len(mapper_dict)}")        
     if L_NEXTGEMS:
         mapper_dict, dsdict = add_nextgems(mapper_dict, dsdict)
+        print(f"After NEXTGEMS: {len(dsdict)}")        
+        print(f"After NEXTGEMS: {len(mapper_dict)}")        
     if L_ORCESTRA:
         mapper_dict, dsdict = add_orcestra(mapper_dict, dsdict)
+        print(f"After ORCESTRA: {len(dsdict)}")
+        print(f"After ORCESTRA: {len(mapper_dict)}")        
     if L_ERA5:
         mapper_dict, dsdict = add_era5(mapper_dict, dsdict)
+        print(f"After ERA: {len(dsdict)}")
+        print(f"After ERA: {len(mapper_dict)}")        
     if L_DYAMOND:
         mapper_dict, dsdict = add_dyamond(mapper_dict, dsdict)
+        print(f"After DYAMOND: {len(dsdict)}")
+        print(f"After DYAMOND: {len(mapper_dict)}")        
     if L_EERIE:
         mapper_dict, dsdict = add_eerie(mapper_dict, dsdict)
+        print(f"After EERIE: {len(dsdict)}")
+        print(f"After EERIE: {len(mapper_dict)}")        
 
     kp = KerchunkPass()
     kp.mapper_dict = mapper_dict

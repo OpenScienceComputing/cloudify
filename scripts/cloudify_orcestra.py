@@ -2,7 +2,7 @@ import glob
 import datetime
 from tqdm import tqdm
 import xarray as xr
-from datasethelper import *
+from cloudify.utils.datasethelper import *
 
 TRUNK = "/work/mh0492/m301067/orcestra/healpix/"
 DIMS = ["2d", "3d"]
@@ -21,6 +21,7 @@ conf_dict = dict(
 def add_orcestra(mapper_dict, dsdict):
     init_dates_trunks = [
         a for a in sorted(glob.glob(TRUNK + "/*")) if a.split("/")[-1][0] == "0"
+        if not "-rerun" in a
     ]
     dsone = None
     for ini in tqdm(init_dates_trunks):
@@ -37,6 +38,8 @@ def add_orcestra(mapper_dict, dsdict):
                 dsone = ds.copy()
             ds["cell"] = dsone["cell"]
             ds.attrs.update(conf_dict)
+            print(ds.encoding["source"])
+            print(dsname)
             mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds)
             ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
             ds = set_compression(ds)

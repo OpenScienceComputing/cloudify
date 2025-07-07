@@ -49,8 +49,8 @@ def set_custom_header(response: fastapi.Response) -> None:
 
 def split_ds(ds: xr.Dataset) -> list:
     fv = None
-    for v in ds.data_vars:
-        if "time" in ds[v].dims:
+    for v in ds.data_vars.keys():
+        if "time" in ds[v].dims.keys():
             fv = v
             break
     if not fv:
@@ -142,11 +142,12 @@ def apply_lossy_compression(
 ) -> (dict, xr.Dataset):
     print("lossy")
     if L_DASK:
-        se = ds.encoding["source"]
+        se = ds.encoding.get("source")
         ds = xr.apply_ufunc(
             lossy_compress_chunk, ds, dask="parallelized", keep_attrs="drop_conflicts"
         )
-        ds.encoding["source"] = se
+        if se:
+            ds.encoding["source"] = se
     else:
         mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsid, ds)
         for var in ds.data_vars:
@@ -165,6 +166,23 @@ def set_compression(ds):
     return ds
 
 
+def get_combination_list(ups:dict) -> list:
+    if not ups:
+        return []
+    uplists=[up["allowed"] for up in ups]
+    combinations = list(
+            itertools.product(
+                *uplists
+                )
+            )
+    return [
+            {
+                ups[i]["name"]:comb[i]
+                for i in range(len(ups))
+                }
+            for comb in combinations
+            ]
+
 def find_data_sources(catalog, name=None):
     newname = ".".join([a for a in [name, catalog.name] if a])
     data_sources = []
@@ -175,31 +193,112 @@ def find_data_sources(catalog, name=None):
         if isinstance(entry, intake.catalog.Catalog):
             if newname == "main":
                 newname = None
-                # If the entry is a subcatalog, recursively search it
+            # If the entry is a subcatalog, recursively search it
             data_sources.extend(find_data_sources(entry, newname))
-        elif isinstance(entry, intake.source.base.DataSource):
+        elif isinstance(entry, intake.source.base.DataSource) and not key.endswith('.nc'):
             data_sources.append(newname + "." + key)
 
     return data_sources
 
+def get_dataset_dict_from_intake(
+    cat,
+    dsnames:list,
+    prefix:str=None,
+    drop_vars:list=None,
+    whitelist_paths:list=None,
+    storage_chunk_patterns:list=None,
+    allowed_ups:dict=None,
+    mdupdate:bool=False
+) -> dict :
+    dsdict={}
+    for dsname in dsnames:
+        print(dsname)
+        desc=cat[dsname].describe()
+        ups=desc.get("user_parameters")
+        if allowed_ups:
+            for upuser,upvals in allowed_ups.items():
+                for idx,up in enumerate(ups):
+                    if up["name"] == upuser:
+                        ups[idx]["allowed"] = upvals
+        md=desc.get("metadata")
+        args=desc.get("args")
+        urlpath=args.get("urlpath")
+        if type(urlpath)==list:
+            urlpath=urlpath[0]
+        if whitelist_paths:
+            if not any(a in urlpath for a in whitelist_paths):
+                print("Not in known projects:")
+                print(mdsid)
+                continue        
+        dictname=dsname if not prefix else prefix+dsname
+        
+        upnames=[a["name"] for a in ups]
+        comb={}
+        if storage_chunk_patterns:
+            if any(b in dsname for b in storage_chunk_patterns):
+                comb["chunks"]={}
+        if not args.get("chunks") and not comb.get("chunks"):
+            comb["chunks"] = "auto"
+        if drop_vars and not urlpath.endswith('.nc'): #not possible for nc sources
+            if type(drop_vars)==dict:
+                b = next((b for b in drop_vars.keys() if b in dsname),None)
+                if b:
+                    comb["drop_variables"]=drop_vars[b]
+            else:
+                comb["drop_variables"]=drop_vars
+        if ups and any(up in desc["args"]["urlpath"] for up in upnames) and not upnames == ["method"]:
+            combination_list=get_combination_list(ups)
+            for combl in combination_list:                
+                iakey=dictname+"."+'_'.join(
+                    [
+                        str(b)
+                        for b in combl.values()
+                    ]
+                )
+                comb["chunks"]={}
+                comb.update(combl)
+                try:
+                    ds=cat[dsname](**comb).to_dask() 
+                    if mdupdate:
+                        ds.attrs.update(md)
+                    #chunks="auto",storage_options=storage_options).to_dask()
+                    ds.attrs["href"]=ds.encoding["source"] if ds.encoding["source"] else urlpath
+                    ds.attrs["open_kwargs"]=copy(args)
+                    ds.attrs["total_no_of_chunks"] = sum(
+                        np.prod(var.data.numblocks)
+                        for var in ds.data_vars.values()
+                        if hasattr(var.data, 'numblocks')
+                    )
+                    del ds.attrs["open_kwargs"]["urlpath"]
+                    ds.attrs["open_kwargs"].update(dict(engine="zarr"))  
+                    dsdict[iakey]=ds
 
-def get_combination_list(ups: dict) -> list:
-    uplists = [up["allowed"] for up in ups]
-    combinations = list(itertools.product(*uplists))
-    return [{ups[i]["name"]: comb[i] for i in range(len(ups))} for comb in combinations]
+                except:
+                    print("Could not open "+iakey)
+                    continue
+        else:
+            try:
+                ds=cat[dsname](**comb).to_dask() 
+                if mdupdate:
+                    ds.attrs.update(md)
+                dsdict[dictname]=ds
+                #chunks="auto",storage_options=storage_options).to_dask()
+            except:
+                print("Could not open "+dsname)
+                continue
+    return dsdict
+
 
 
 def reset_encoding_get_mapper(mapper_dict, dsid, ds, desc=None):
-    sp = None
-    if "source" in ds.encoding:
-        sp = ds.encoding["source"]
-    elif desc:
+    sp = ds.encoding.get("source")
+    if (sp is None) and desc:
         updesc = desc["args"]["urlpath"]
         if type(updesc) == str or (type(updesc) == list and len(updesc) == 1):
             if type(updesc) == list:
                 updesc = updesc[0]
             sp = updesc
-    ds = ds.reset_encoding()
+    ds = ds.drop_encoding()
     if sp:
         use_options = copy(STORAGE_OPTIONS)
         if desc:

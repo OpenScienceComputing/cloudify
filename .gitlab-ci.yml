@@ -8,7 +8,7 @@ variables:
 # Define common setup steps using a YAML anchor
 .common-conda-setup: &common-conda-setup
   before_script:
-    - conda env create --name $CONDA_ENV_NAME --file spec-file.yaml -y
+    - mamba env create --name $CONDA_ENV_NAME --file spec-file.yaml -y
     - export LD_LIBRARY_PATH=/opt/conda/envs/$CONDA_ENV_NAME/lib:$LD_LIBRARY_PATH 
     - source activate $CONDA_ENV_NAME
     - pip install -U .
@@ -17,11 +17,11 @@ environment:
   stage: build
   script:
     - echo "Creating an environment"
-    - conda env create -f environment.yaml -y
+    - mamba env create -f environment.yaml -y
     - source activate $CONDA_ENV_NAME
 #    - pip uninstall cloudify -y
 #    - pip install -U .
-    - conda env export -n $CONDA_ENV_NAME >spec-file.yaml  # Save the environment specifications
+    - mamba env export -n $CONDA_ENV_NAME >spec-file.yaml  # Save the environment specifications
   artifacts:
     paths:
       - spec-file.yaml  # Save the environment specifications as an artifact
@@ -34,6 +34,11 @@ test:
   dependencies:
     - environment
   script:
+    - SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+    - cp patches/utilszarr.py $SITE_PACKAGES/xpublish/utils/zarr.py
+    - cp patches/pluginszarr.py $SITE_PACKAGES/xpublish/plugins/included/zarr.py
+    - cp patches/intakeplugin.py $SITE_PACKAGES/xpublish_intake/plugins.py
+      #- patch "$SITE_PACKAGES/numpy/core/somefile.py" < patches/my_numpy_patch.diff          
     - cd test
     - chmod 777 test.sh && ./test.sh
   tags:

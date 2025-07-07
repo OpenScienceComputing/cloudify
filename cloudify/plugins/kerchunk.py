@@ -28,10 +28,12 @@ gctrigger = 0
 GCLIMIT = 500
 
 
-async def kerchunk_stream_content(data):
-    await asyncio.sleep(0)
-    yield data
-
+async def kerchunk_stream_content_safe(fsmap, key):
+    try:
+        yield fsmap[key]  # This fails immediately if key is invalid (lazy access)
+    except KeyError:
+        # Let the outer logic raise 404 before returning a StreamingResponse
+        raise
 
 def clean_json(obj):
     if isinstance(obj, dict):
@@ -114,11 +116,20 @@ class KerchunkPass(Plugin):
                 #                    media_type='application/octet-stream',
                 #                )
                 else:
-                    data = await asyncio.to_thread(lambda: fsmap[key])
-                    resp = StreamingResponse(
-                        kerchunk_stream_content(fsmap[key]),
-                        media_type="application/octet-stream",
-                    )
+                    #data = await asyncio.to_thread(lambda: fsmap[key])
+                    #resp = Response(
+                    gen = kerchunk_stream_content_safe(fsmap, key)
+
+                    # Try to advance once and buffer the first chunk
+                    first = await anext(gen)
+
+                    # Yield the first chunk and the rest (in this case, there likely is no 'rest')
+                    async def full_stream():
+                        yield first
+                        async for chunk in gen:
+                            yield chunk
+
+                    resp = StreamingResponse(full_stream(), media_type="application/octet-stream")
                 resp.headers["Cache-control"] = "max-age=604800"
                 resp.headers["X-EERIE-Request-Id"] = "True"
                 resp.headers["Last-Modified"] = todaystring
