@@ -1,11 +1,18 @@
+from typing import Dict, Any
 import glob
-import datetime
 from tqdm import tqdm
 import xarray as xr
-from cloudify.utils.datasethelper import *
+from cloudify.utils.datasethelper import (
+    reset_encoding_get_mapper,
+    adapt_for_zarr_plugin_and_stac,
+    set_compression
+)
 
+# Configuration constants
 TRUNK = "/work/mh0492/m301067/orcestra/healpix/"
 DIMS = ["2d", "3d"]
+
+# ORCESTRA dataset configuration
 conf_dict = dict(
     source_id="ICON-LAM",
     institution_id="MPI-M",
@@ -18,7 +25,27 @@ conf_dict = dict(
 )
 
 
-def add_orcestra(mapper_dict, dsdict):
+def add_orcestra(
+    mapper_dict: Dict[str, Any],
+    dsdict: Dict[str, xr.Dataset]
+) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
+    """
+    Add ORCESTRA datasets to the mapper dictionary and dataset dictionary.
+
+    This function processes ORCESTRA healpix datasets from the specified trunk directory,
+    handling both 2D and 3D dimensions, and preparing them for Zarr storage.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        dsdict: Dictionary mapping dataset IDs to xarray Datasets
+
+    Returns:
+        tuple[Dict[str, Any], Dict[str, xr.Dataset]]: Updated mapper_dict and dsdict
+
+    Raises:
+        ValueError: If required trunk directory or datasets are not accessible
+    """
+    # Find all initial date directories
     init_dates_trunks = [
         a
         for a in sorted(glob.glob(TRUNK + "/*"))

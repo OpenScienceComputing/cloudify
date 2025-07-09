@@ -1,8 +1,36 @@
 import intake
-from cloudify.utils.datasethelper import *
+from typing import Dict, Any, List, Optional
+from cloudify.utils.datasethelper import (
+    get_dataset_dict_from_intake,
+    find_data_sources,
+    reset_encoding_get_mapper,
+    adapt_for_zarr_plugin_and_stac,
+    set_compression
+)
+import xarray as xr
 
 
-def get_dsone(cat, model: str, realm: str, coords: list):
+def get_dsone(
+    cat: intake.Catalog,
+    model: str,
+    realm: str,
+    coords: List[str]
+) -> Optional[xr.Dataset]:
+    """
+    Get coordinate dataset for a specific model and realm.
+
+    This function attempts to load coordinate information from various dataset
+    variants for a given model and realm.
+
+    Args:
+        cat: Intake catalog
+        model: Model identifier
+        realm: Model realm (e.g., 'atmos', 'ocean')
+        coords: List of coordinate variables to extract
+
+    Returns:
+        Optional[xr.Dataset]: Coordinate dataset or None if not found
+    """
     for dsname in ["2d_monthly_mean", "monthly_node", "2D_monthly_avg"]:
         try:
             dscoords = (
@@ -12,17 +40,40 @@ def get_dsone(cat, model: str, realm: str, coords: list):
                 .chunk()
             )
             return dscoords
-        except:
-            pass
-
+        except Exception as e:
+            print(f"Failed to load coordinates for {model}.{realm}: {str(e)}")
     return None
 
 
-def add_eerie(mapper_dict: dict, dsdict: dict) -> (dict, dict):
-    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
-    l_dask = True
+def add_eerie(
+    mapper_dict: Dict[str, Any],
+    dsdict: Dict[str, xr.Dataset]
+) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
+    """
+    Add EERIE datasets to the mapper dictionary and dataset dictionary.
 
-    cat = intake.open_catalog(source_catalog)
+    This function processes EERIE model output datasets from the DKRZ intake catalog,
+    handling coordinate transformations and dataset preparation for Zarr storage.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        dsdict: Dictionary mapping dataset IDs to xarray Datasets
+
+    Returns:
+        tuple[Dict[str, Any], Dict[str, xr.Dataset]]: Updated mapper_dict and dsdict
+
+    Raises:
+        ValueError: If required source catalog is not accessible
+    """
+    # EERIE catalog path
+    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
+    
+    try:
+        cat = intake.open_catalog(source_catalog)
+    except Exception as e:
+        raise ValueError(f"Failed to open EERIE catalog: {str(e)}")
+
+    # Define model coordinate datasets
     dsonedict = {
         "icon_atmos": get_dsone(
             cat,
@@ -56,13 +107,14 @@ def add_eerie(mapper_dict: dict, dsdict: dict) -> (dict, dict):
         ),
     }
 
+    # Find datasets to process
     hostids = []
     for source in list(cat["model-output"]):
         if source != "csv" and source != "esm-json":
             hostids += [
-                a
-                for a in find_data_sources(cat["model-output"][source])
-                if not any(b in a for b in ["v2023", "3d_grid"])
+                    a
+                    for a in find_data_sources(cat["model-output"][source])
+                    if not any(b in a for b in ["v2023", "3d_grid"])
             ]
 
     localdsdict = get_dataset_dict_from_intake(
@@ -71,7 +123,8 @@ def add_eerie(mapper_dict: dict, dsdict: dict) -> (dict, dict):
         whitelist_paths=["bm1344", "bm1235", "bk1377"],
         storage_chunk_patterns=["native", "grid", "healpix", ".mon"],
         drop_vars=dict(
-            native=["lat", "lon", "cell_sea_land_mask"], healpix=["lat", "lon"]
+            native=["lat", "lon", "cell_sea_land_mask"],
+            healpix=["lat", "lon"]
         ),
     )
 
@@ -80,22 +133,20 @@ def add_eerie(mapper_dict: dict, dsdict: dict) -> (dict, dict):
         if "native" in dsid:
             dsone = dsonedict.get(
                 next(
-                    (
-                        k
-                        for k in dsonedict.keys()
-                        if all(b in dsid for b in k.split("_"))
-                    ),
-                    "nothing_found",
-                )
+                    k
+                    for k in dsonedict.keys()
+                    if all(b in dsid for b in k.split("_"))
+                ),
+                "nothing_found"
             )
-            if dsone and not "elem" in dsid:
-                try:
-                    for dv in dsone.variables.keys():
-                        ds.coords[dv] = dsone[dv]
-                except:
-                    print(f"Couldnt set coordinates for {dsid}")
-            else:
-                print(f"Couldnt find coords for {dsid}")
+        if dsone and not "elem" in dsid:
+            try:
+                for dv in dsone.variables.keys():
+                    ds.coords[dv] = dsone[dv]
+            except:
+                print(f"Couldnt set coordinates for {dsid}")
+        else:
+            print(f"Couldnt find coords for {dsid}")
         if "d" in ds.data_vars:
             ds = ds.rename(d="testd")
 

@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Dict, Any, Generator, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -7,28 +7,42 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import StreamingResponse, Response
 import cachey
 import xarray as xr
-import fsspec
-import asyncio
+#import fsspec
+# import asyncio
 import gc
 import json
-import os
 import numpy as np
 
-from xpublish.dependencies import (
-    get_dataset,
-)  # Assuming 'dependencies' is the module where get_dataset is defined
 from xpublish import Plugin, hookimpl, Dependencies
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
-
 from datetime import datetime
+
+# Constants for garbage collection
+GCLIMIT = 500
+gctrigger = 0
 
 todaystring = datetime.today().strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-gctrigger = 0
-GCLIMIT = 500
 
+async def kerchunk_stream_content_safe(
+    fsmap: Any, key: str
+) -> Generator[bytes, None, None]:
+    """
+    Safely stream content from a fsspec mapper.
 
-async def kerchunk_stream_content_safe(fsmap, key):
+    This function yields content from the fsspec mapper while handling
+    invalid keys gracefully.
+
+    Args:
+        fsmap: fsspec mapper object
+        key: Key to access in the mapper
+
+    Yields:
+        Generator[bytes]: Content from the mapper
+
+    Raises:
+        KeyError: If the key is invalid
+    """
     try:
         yield fsmap[key]  # This fails immediately if key is invalid (lazy access)
     except KeyError:
@@ -36,7 +50,19 @@ async def kerchunk_stream_content_safe(fsmap, key):
         raise
 
 
-def clean_json(obj):
+def clean_json(obj: Any) -> Any:
+    """
+    Clean JSON object by removing None and NaN values.
+
+    This function recursively cleans a JSON object by removing None values
+    and NaN values from dictionaries and lists.
+
+    Args:
+        obj: Input JSON object (dict, list, or primitive)
+
+    Returns:
+        Any: Cleaned JSON object with None and NaN values removed
+    """
     if isinstance(obj, dict):
         return {
             k: clean_json(v)
@@ -48,8 +74,14 @@ def clean_json(obj):
     else:
         return obj
 
+class KerchunkPlugin(Plugin):
+    """
+    Kerchunk plugin for xpublish that provides kerchunk-based data access.
 
-class KerchunkPass(Plugin):
+    This plugin extends xpublish with endpoints for kerchunk-based data access,
+    allowing efficient chunked data access through kerchunk references.
+    """
+
     name: str = "kerchunk"
     mapper_dict: dict = {}
 

@@ -1,95 +1,155 @@
-from cloudify.utils.datasethelper import *
-from copy import deepcopy as copy
+from typing import Dict, Any, Optional
+from cloudify.utils.datasethelper import (
+    reset_encoding_get_mapper,
+    adapt_for_zarr_plugin_and_stac,
+    set_compression
+)
 import xarray as xr
 import intake
 import yaml
-import itertools
 import fsspec
 
 
-def test_catalog(incat: str) -> str:
-    try:
-        fsspec.open(incat).open()
-    except Exception as e:
-        print(e)
-        return None
-    return incat
-
-
 def refine_nextgems(
-    mapper_dict: dict, iakey: str, ds: xr.Dataset, desc: dict
-) -> (dict, xr.Dataset):
-    md = desc.get("metadata")
-    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc)
-    print("adapt for zarr")
-    ds = adapt_for_zarr_plugin_and_stac(iakey, ds)
-    print("Set compression")
-    ds = set_compression(ds)
-    for mdk, mdv in md.items():
-        if not mdk in ds.attrs:
+    mapper_dict: Dict[str, Any],
+    iakey: str,
+    ds: xr.Dataset,
+    desc: Dict[str, Any]
+) -> tuple[Dict[str, Any], xr.Dataset]:
+    """
+    Refine NEXTGEMS dataset with metadata and compression settings.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        iakey: Dataset identifier
+        ds: xarray Dataset to refine
+        desc: Dataset description containing metadata
+
+    Returns:
+        tuple[Dict[str, Any], xr.Dataset]: Updated mapper_dict and refined dataset
+    """
+    # Add metadata from description
+    for mdk, mdv in desc.get("metadata", {}).items():
+        if mdk not in ds.attrs:
             ds.attrs[mdk] = mdv
-    if desc.get("metadata"):
-        for mdk, mdv in desc["metadata"].items():
-            if not mdk in ds.attrs:
-                ds.attrs[mdk] = mdv
-    #    print("Lets remove encoding")
-    #    for var in ds.variables:
-    #        del ds[var].encoding["chunks"]
+
+    # Prepare dataset for storage
+    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc)
+    ds = adapt_for_zarr_plugin_and_stac(iakey, ds)
+    ds = set_compression(ds)
+
     return mapper_dict, ds
 
 
-def get_args(desc: dict) -> dict:
+def get_args(desc: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get processed arguments from dataset description.
+
+    Args:
+        desc: Dataset description containing arguments
+
+    Returns:
+        Dict[str, Any]: Processed arguments with updated storage options
+    """
     args = copy(desc["args"])
     if not args.get("storage_options"):
         args["storage_options"] = {}
-    if type(args["urlpath"]) == str:
-        if args["urlpath"].startswith("reference") and not args["storage_options"].get(
-            "remote_protocol", None
-        ):
+
+    # Handle reference paths
+    if isinstance(args["urlpath"], str) and args["urlpath"].startswith("reference"):
+        if not args["storage_options"].get("remote_protocol"):
             args["storage_options"].update(dict(lazy=True, remote_protocol="file"))
-    #    if not args.get("chunks"):
+
+    # Set chunking strategy
     args["chunks"] = "auto"
     del args["urlpath"]
+
     return args
 
 
-def add_healpix(i: str, v: xr.Dataset) -> xr.Dataset:
-    crs = xr.open_zarr(
-        "/work/bm1235/k202186/dy3ha-rechunked/d3hp003.zarr/PT1H_inst_z0_atm"
-    )[["crs"]]
-    levstr = i.split("healpix")[1].split(".")[0].split("_")[0]
+def add_healpix(
+    i: str,
+    v: xr.Dataset
+) -> xr.Dataset:
+    """
+    Add healpix grid mapping information to dataset.
+
+    Args:
+        i: Dataset identifier containing healpix level information
+        v: xarray Dataset to modify
+
+    Returns:
+        xr.Dataset: Dataset with added healpix grid mapping
+    """
     try:
+        # Load CRS information
+        crs = xr.open_zarr(
+            "/work/bm1235/k202186/dy3ha-rechunked/d3hp003.zarr/PT1H_inst_z0_atm"
+        )["crs"]
+
+        # Extract healpix level from identifier
+        levstr = i.split("healpix")[1].split(".")[0].split("_")[0]
         lev = int(levstr)
-    except:
-        print(levstr)
-        print(i)
-        print("not healpix level")
+
+        # Add healpix information
+        v["crs"] = crs["crs"]
+        v["crs"].attrs["healpix_nside"] = lev
+        for dv in v.data_vars:
+            v[dv].attrs["grid_mapping"] = "crs"
+
         return v
-    v["crs"] = crs["crs"]
-    v["crs"].attrs["healpix_nside"] = lev
-    for dv in v.data_vars:
-        v[dv].attrs["grid_mapping"] = "crs"
-    return v
+
+    except Exception as e:
+        print(f"Warning: Failed to add healpix information: {str(e)}")
+        print(f"Identifier: {i}")
+        return v
 
 
-def add_nextgems(mapper_dict: dict, dsdict: dict):
+def add_nextgems(
+    mapper_dict: Dict[str, Any],
+    dsdict: Dict[str, xr.Dataset]
+) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
+    """
+    Add NEXTGEMS datasets to the mapper dictionary and dataset dictionary.
+
+    This function processes NEXTGEMS datasets from the DKRZ intake catalog,
+    handling coordinate transformations, healpix grid mapping, and dataset
+    preparation for Zarr storage.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        dsdict: Dictionary mapping dataset IDs to xarray Datasets
+
+    Returns:
+        tuple[Dict[str, Any], Dict[str, xr.Dataset]]: Updated mapper_dict and dsdict
+
+    Raises:
+        ValueError: If required source catalogs are not accessible
+    """
+    # NEXTGEMS catalog paths
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues_nextgems/catalog.yaml"
     published_catalog = "https://www.wdc-climate.de/ui/cerarest/addinfoDownload/nextGEMS_prod_addinfov1/nextGEMS_prod.yaml"
-    DS_ADD = ["ICON.ngc5004"]  # , "IFS.IFS_9-FESOM_5-production.2D_hourly_healpix512"]
+    
+    # Define datasets to process
+    DS_ADD = [
+        "ICON.ngc5004"
+    ]  # "IFS.IFS_9-FESOM_5-production.2D_hourly_healpix512"]
     DS_ADD_SIM = [
         "IFS.IFS_2.8-FESOM_5-production-parq",
         "IFS.IFS_2.8-FESOM_5-production-deep-off-parq",
     ]
 
-    ngccat = intake.open_catalog(source_catalog)
-
-    ngc4_md = None
+    try:
+        ngccat = intake.open_catalog(source_catalog)
+    except Exception as e:
+        raise ValueError(f"Failed to open NEXTGEMS catalog: {str(e)}")
 
     try:
         prodcat = intake.open_catalog(published_catalog)
         ngc4_md = yaml.safe_load(prodcat.yaml())["sources"]["nextGEMS_prod"]["metadata"]
-    except:
-        print("wdcc not working")
+    except Exception as e:
+        print(f"Warning: Failed to load catalogs: {str(e)}")
+        ngc4_md = None
 
     gr_025 = (
         ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"]
@@ -98,11 +158,13 @@ def add_nextgems(mapper_dict: dict, dsdict: dict):
         .load()
     )
 
+    # Build list of all datasets to process
     all_ds = copy(DS_ADD)
     for sim in DS_ADD_SIM:
         for dsn in list(ngccat[sim]):
             all_ds.append(sim + "." + dsn)
 
+    # Get dataset descriptions
     descdict = {}
 
     localdsdict = get_dataset_dict_from_intake(
@@ -113,6 +175,7 @@ def add_nextgems(mapper_dict: dict, dsdict: dict):
         drop_vars={"25deg": ["lat", "lon"]},
     )
 
+    # Process each dataset
     for dsn in list(localdsdict.keys()):
         iakey = dsn.replace("-parq", "")
         desckey = iakey.replace("nextgems.", "")

@@ -1,10 +1,40 @@
-from cloudify.utils.datasethelper import *
+from typing import Dict, Any, Optional
+from cloudify.utils.datasethelper import reset_encoding_get_mapper, adapt_for_zarr_plugin_and_stac
 import intake
+import xarray as xr
 
 
-def add_cosmorea(mapper_dict, dsdict, L_DASK=True):
+def add_cosmorea(
+    mapper_dict: Dict[str, Any],
+    dsdict: Dict[str, xr.Dataset],
+    L_DASK: bool = True
+) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
+    """
+    Add COSMO Reanalysis datasets to the mapper dictionary and dataset dictionary.
+
+    This function processes COSMO Reanalysis datasets from the DKRZ Swift catalog,
+    handling coordinate transformations and dataset preparation for Zarr storage.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        dsdict: Dictionary mapping dataset IDs to xarray Datasets
+        L_DASK: Whether to use Dask for lazy loading (default: True)
+
+    Returns:
+        tuple[Dict[str, Any], Dict[str, xr.Dataset]]: Updated mapper_dict and dsdict
+
+    Raises:
+        ValueError: If required source catalog is not accessible
+    """
+    # COSMO Reanalysis catalog URL
     source_catalog = "https://swift.dkrz.de/v1/dkrz_4236b71e-04df-456b-8a32-5d66641510f2/catalogs/cosmo-rea/main.yaml"
-    cat = intake.open_catalog(source_catalog)
+    
+    try:
+        cat = intake.open_catalog(source_catalog)
+    except Exception as e:
+        raise ValueError(f"Failed to open COSMO Reanalysis catalog: {str(e)}")
+
+    # Define dimensions and variables to process
     onedims = ["height", "rotated_latitude_longitude"]
     drop_vars = [
         "b_bnds",
@@ -16,13 +46,19 @@ def add_cosmorea(mapper_dict, dsdict, L_DASK=True):
         "vertices_longitude",
         "blub",
     ]
-    dsone = (
-        cat["mon_atmos"](chunks=None)
-        .to_dask()
-        .reset_coords()[["latitude", "longitude"]]
-    )
-    print(dsone)
-    dsone = dsone.load()
+
+    # Load base coordinates
+    try:
+        dsone = (
+            cat["mon_atmos"](chunks=None)
+            .to_dask()
+            .reset_coords()[["latitude", "longitude"]]
+        )
+        dsone = dsone.load()
+    except Exception as e:
+        raise ValueError(f"Failed to load base coordinates: {str(e)}")
+
+    # Process each dataset in the catalog
     for dsname in list(cat):
         print(dsname)
         ds = cat[dsname](drop_variables=drop_vars).to_dask()

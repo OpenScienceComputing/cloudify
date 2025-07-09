@@ -1,12 +1,46 @@
-from cloudify.utils.datasethelper import *
+from typing import Dict, Any
+from cloudify.utils.datasethelper import (
+    get_dataset_dict_from_intake,
+    reset_encoding_get_mapper,
+    adapt_for_zarr_plugin_and_stac,
+    set_compression
+)
 import intake
-from copy import deepcopy as copy
+import xarray as xr
 
 
-def add_dyamond(mapper_dict, dsdict):
+def add_dyamond(
+    mapper_dict: Dict[str, Any],
+    dsdict: Dict[str, xr.Dataset]
+) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
+    """
+    Add DYAMOND datasets to the mapper dictionary and dataset dictionary.
+
+    This function processes DYAMOND datasets from the HK25 intake catalog,
+    handling specific dataset configurations and preparation for Zarr storage.
+
+    Args:
+        mapper_dict: Dictionary mapping dataset IDs to storage mappers
+        dsdict: Dictionary mapping dataset IDs to xarray Datasets
+
+    Returns:
+        tuple[Dict[str, Any], Dict[str, xr.Dataset]]: Updated mapper_dict and dsdict
+
+    Raises:
+        ValueError: If required source catalog is not accessible
+    """
+    # DYAMOND catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues_hk25/catalog.yaml"
+    
+    try:
+        cat = intake.open_catalog(source_catalog)
+    except Exception as e:
+        raise ValueError(f"Failed to open DYAMOND catalog: {str(e)}")
+
+    # Define datasets to process
     DS_ADD = ["EU.icon_d3hp003"]
-    cat = intake.open_catalog(source_catalog)
+
+    # Load datasets with specific configurations
     localdsdict = get_dataset_dict_from_intake(
         cat,
         DS_ADD,
@@ -16,6 +50,7 @@ def add_dyamond(mapper_dict, dsdict):
         mdupdate=True,
     )
 
+    # Process each dataset
     for dsn, ds in localdsdict.items():
         mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsn, ds)
         ds = adapt_for_zarr_plugin_and_stac(dsn, ds)
@@ -23,5 +58,4 @@ def add_dyamond(mapper_dict, dsdict):
         dsdict[dsn] = ds
 
     del localdsdict
-
     return mapper_dict, dsdict
