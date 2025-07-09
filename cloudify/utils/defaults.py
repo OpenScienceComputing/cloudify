@@ -1,11 +1,11 @@
-defaults=dict(
+defaults = dict(
     EERIE_CLOUD_URL="https://eerie.cloud.dkrz.de/datasets",
     STAC_API_URL="http://stac2.cloud.dkrz.de:8081/fastapi",
     STAC_API_URL_EXT="https://stac2.cloud.dkrz.de/fastapi",
     STAC_COLLECTION_ID_TEMPLATE="<project_id>-<activity_id>-<institution_id>-<source_id>-<experiment_id>-<version_id>",
     STAC_ITEM_ID_XPUBLISH_PREFIX="xp",
     STAC_ITEM_XPUBLISH_TITLE_SUFFIX=" kerchunked",
-    PROVIDER_DKRZ = dict(
+    PROVIDER_DKRZ=dict(
         name="DKRZ",
         description="The data host of the items and assets",
         roles=["host"],
@@ -42,5 +42,5 @@ defaults=dict(
         **item["assets"][asset]["xarray:open_kwargs"],
         storage_options=item["assets"][asset].get("xarray:storage_options")
     )
-    ``` """        
+    ``` """,
 )

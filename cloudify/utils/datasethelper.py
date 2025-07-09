@@ -166,22 +166,13 @@ def set_compression(ds):
     return ds
 
 
-def get_combination_list(ups:dict) -> list:
+def get_combination_list(ups: dict) -> list:
     if not ups:
         return []
-    uplists=[up["allowed"] for up in ups]
-    combinations = list(
-            itertools.product(
-                *uplists
-                )
-            )
-    return [
-            {
-                ups[i]["name"]:comb[i]
-                for i in range(len(ups))
-                }
-            for comb in combinations
-            ]
+    uplists = [up["allowed"] for up in ups]
+    combinations = list(itertools.product(*uplists))
+    return [{ups[i]["name"]: comb[i] for i in range(len(ups))} for comb in combinations]
+
 
 def find_data_sources(catalog, name=None):
     newname = ".".join([a for a in [name, catalog.name] if a])
@@ -195,99 +186,102 @@ def find_data_sources(catalog, name=None):
                 newname = None
             # If the entry is a subcatalog, recursively search it
             data_sources.extend(find_data_sources(entry, newname))
-        elif isinstance(entry, intake.source.base.DataSource) and not key.endswith('.nc'):
+        elif isinstance(entry, intake.source.base.DataSource) and not key.endswith(
+            ".nc"
+        ):
             data_sources.append(newname + "." + key)
 
     return data_sources
 
+
 def get_dataset_dict_from_intake(
     cat,
-    dsnames:list,
-    prefix:str=None,
-    drop_vars:list=None,
-    whitelist_paths:list=None,
-    storage_chunk_patterns:list=None,
-    allowed_ups:dict=None,
-    mdupdate:bool=False
-) -> dict :
-    dsdict={}
+    dsnames: list,
+    prefix: str = None,
+    drop_vars: list = None,
+    whitelist_paths: list = None,
+    storage_chunk_patterns: list = None,
+    allowed_ups: dict = None,
+    mdupdate: bool = False,
+) -> dict:
+    dsdict = {}
     for dsname in dsnames:
         print(dsname)
-        desc=cat[dsname].describe()
-        ups=desc.get("user_parameters")
+        desc = cat[dsname].describe()
+        ups = desc.get("user_parameters")
         if allowed_ups:
-            for upuser,upvals in allowed_ups.items():
-                for idx,up in enumerate(ups):
+            for upuser, upvals in allowed_ups.items():
+                for idx, up in enumerate(ups):
                     if up["name"] == upuser:
                         ups[idx]["allowed"] = upvals
-        md=desc.get("metadata")
-        args=desc.get("args")
-        urlpath=args.get("urlpath")
-        if type(urlpath)==list:
-            urlpath=urlpath[0]
+        md = desc.get("metadata")
+        args = desc.get("args")
+        urlpath = args.get("urlpath")
+        if type(urlpath) == list:
+            urlpath = urlpath[0]
         if whitelist_paths:
             if not any(a in urlpath for a in whitelist_paths):
                 print("Not in known projects:")
                 print(mdsid)
-                continue        
-        dictname=dsname if not prefix else prefix+dsname
-        
-        upnames=[a["name"] for a in ups]
-        comb={}
+                continue
+        dictname = dsname if not prefix else prefix + dsname
+
+        upnames = [a["name"] for a in ups]
+        comb = {}
         if storage_chunk_patterns:
             if any(b in dsname for b in storage_chunk_patterns):
-                comb["chunks"]={}
+                comb["chunks"] = {}
         if not args.get("chunks") and not comb.get("chunks"):
             comb["chunks"] = "auto"
-        if drop_vars and not urlpath.endswith('.nc'): #not possible for nc sources
-            if type(drop_vars)==dict:
-                b = next((b for b in drop_vars.keys() if b in dsname),None)
+        if drop_vars and not urlpath.endswith(".nc"):  # not possible for nc sources
+            if type(drop_vars) == dict:
+                b = next((b for b in drop_vars.keys() if b in dsname), None)
                 if b:
-                    comb["drop_variables"]=drop_vars[b]
+                    comb["drop_variables"] = drop_vars[b]
             else:
-                comb["drop_variables"]=drop_vars
-        if ups and any(up in desc["args"]["urlpath"] for up in upnames) and not upnames == ["method"]:
-            combination_list=get_combination_list(ups)
-            for combl in combination_list:                
-                iakey=dictname+"."+'_'.join(
-                    [
-                        str(b)
-                        for b in combl.values()
-                    ]
-                )
-                comb["chunks"]={}
+                comb["drop_variables"] = drop_vars
+        if (
+            ups
+            and any(up in desc["args"]["urlpath"] for up in upnames)
+            and not upnames == ["method"]
+        ):
+            combination_list = get_combination_list(ups)
+            for combl in combination_list:
+                iakey = dictname + "." + "_".join([str(b) for b in combl.values()])
+                comb["chunks"] = {}
                 comb.update(combl)
                 try:
-                    ds=cat[dsname](**comb).to_dask() 
+                    ds = cat[dsname](**comb).to_dask()
                     if mdupdate:
                         ds.attrs.update(md)
-                    #chunks="auto",storage_options=storage_options).to_dask()
-                    ds.attrs["href"]=ds.encoding["source"] if ds.encoding["source"] else urlpath
-                    ds.attrs["open_kwargs"]=copy(args)
+                    # chunks="auto",storage_options=storage_options).to_dask()
+                    ds.attrs["href"] = (
+                        ds.encoding["source"] if ds.encoding["source"] else urlpath
+                    )
+                    ds.attrs["open_kwargs"] = copy(args)
                     ds.attrs["total_no_of_chunks"] = sum(
                         np.prod(var.data.numblocks)
                         for var in ds.data_vars.values()
-                        if hasattr(var.data, 'numblocks')
+                        if hasattr(var.data, "numblocks")
                     )
                     del ds.attrs["open_kwargs"]["urlpath"]
-                    ds.attrs["open_kwargs"].update(dict(engine="zarr"))  
-                    dsdict[iakey]=ds
+                    ds.attrs["open_kwargs"].update(dict(engine="zarr"))
+                    dsdict[iakey] = ds
 
                 except:
-                    print("Could not open "+iakey)
+                    print("Could not open " + iakey)
                     continue
         else:
             try:
-                ds=cat[dsname](**comb).to_dask() 
+                ds = cat[dsname](**comb).to_dask()
                 if mdupdate:
                     ds.attrs.update(md)
-                dsdict[dictname]=ds
-                #chunks="auto",storage_options=storage_options).to_dask()
+                dsdict[dictname] = ds
+                # chunks="auto",storage_options=storage_options).to_dask()
             except:
-                print("Could not open "+dsname)
+                print("Could not open " + dsname)
                 continue
     return dsdict
-
 
 
 def reset_encoding_get_mapper(mapper_dict, dsid, ds, desc=None):
