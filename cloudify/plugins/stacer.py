@@ -13,16 +13,24 @@ import cachey
 from pystac import Item, Asset, MediaType
 from datetime import datetime
 import pystac
-import json
 import fsspec
+import requests
+from typing import Dict, List, Optional, Union, Any, TypeVar
+import math
+import socket
+from cloudify.utils.mapping import *
+from cloudify.utils.defaults import *
 
 PARENT_CATALOG = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/catalogs/stac-catalog-eeriecloud.json"
-GRIDLOOK = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/gridlook/index.html"
-GRIDLOOK_HP = "https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html"
-HOST = "https://eerie.cloud.dkrz.de/"
-INTAKE_SOURCE = "https://raw.githubusercontent.com/eerie-project/intake_catalogues/refs/heads/main/dkrz/disk/model-output/main.yaml"
+GRIDLOOK = "https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html"
+GRIDLOOK_HP = "https://gridlook.pages.dev/"
 JUPYTERLITE = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/jupyterlite/index.html"
-HOSTURL = HOST + "datasets"
+hostname = socket.gethostname()
+HOST = f"https://{hostname}"
+port = 9000
+if port:
+    HOST = f"http://{hostname}:{port}"
+HOSTURL = f"{HOST}/datasets"
 PROVIDER_DEFAULT = dict(
     name="DKRZ",
     description="The data host of eerie.cloud",
@@ -35,11 +43,6 @@ ALTERNATE_KERCHUNK = dict(
         "description": "Server-side on-the-fly rechunked and unifromly encoded data",
     }
 )
-STAC_EXTENSIONS = [
-    "https://stac-extensions.github.io/datacube/v2.2.0/schema.json",
-    "https://stac-extensions.github.io/alternate-assets/v1.2.0/schema.json",
-    "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json",
-]
 
 XARRAY_DEF = dict(engine="zarr", chunks="auto")
 XARRAY_ZARR = dict(consolidated=True)
@@ -61,6 +64,48 @@ TECHDOC = pystac.Asset(
     roles=["OVERVIEW"],
 )
 
+XarrayDataset = TypeVar("xarray.Dataset")
+
+L_API = False
+# HOSTURL="https://s3.eu-dkrz-1.dkrz.cloud"
+HOSTURLS = {"AWI": None, "MPI-M": None}
+ID_TEMPLATE = "project_id-source_id-experiment_id-version_id-realm-grid_label-level_type-frequency-cell_methods"
+ALTERNATE_ASSETS = (
+    "https://stac-extensions.github.io/alternate-assets/v1.2.0/schema.json"
+)
+STAC_EXTENSIONS = [
+    "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.2.0/schema.json",
+]
+
+NEEDED_ATTRS = [
+    "title",
+    "description",
+    "_xpublish_id",
+    "time_min",
+    "time_max",
+    "bbox",
+    "creation_date",
+    "institution_id",
+    "centre",
+    "institution",
+    "centreDescription",
+    "license",
+]
+
+INSTITUTE_KEYS = [
+    "institution_id",
+    "institute_id",
+    "institution",
+    "institute",
+    "centre",
+]
+SOURCE_KEYS = ["source_id", "model_id", "source", "model"]
+EXPERIMENT_KEYS = ["experiment_id", "experiment"]
+PROJECT_KEYS = ["project_id", "project", "activity_id", "activity"]
+
+ASSET_TYPES = ["dkrz-disk", "dkrz-cloud", "dkrz-archive", "eerie-cloud"]
+
 
 def create_stac_collection():
     start = datetime(1850, 1, 1)
@@ -69,8 +114,8 @@ def create_stac_collection():
         id="eerie-cloud-all",
         title="ESM data from DKRZ in Zarr format",
         description=EERIE_DESC,
-        stac_extensions=STAC_EXTENSIONS,
-        href=HOST + "stac-collection-all.json",
+        stac_extensions=copy(STAC_EXTENSIONS).append(ALTERNATE_ASSETS),
+        href=HOST + "/stac-collection-all.json",
         extent=pystac.Extent(
             spatial=pystac.SpatialExtent([-180, -90, 180, 90]),
             temporal=pystac.TemporalExtent(intervals=[start, end]),
@@ -106,239 +151,265 @@ def make_json_serializable(obj):
             return str(obj)  # Convert unsupported types to strings
 
 
-def xarray_to_stac_item(ds):
-    # cube
-    cube = dict()
-    cube["cube:dimensions"] = dict()
-    cube["cube:variables"] = dict()
-    for dv in list(ds.variables):
-        cube["cube:variables"][dv] = dict(
-            type="data",
-            dimensions=[*ds[dv].dims],
-            unit=ds[dv].attrs.get("units", "Not set"),
-            description=ds[dv].attrs.get("long_name", dv),
-            attrs=ds[dv].attrs,
-        )
-
-    # default
-    title = ds.attrs.get("title", "No title")
-    description = ds.attrs.get("description", "No description")
-    xid = ds.attrs.get("_xpublish_id", "No id")
-    keywords = xid.split(".")
-    datetimeattr = datetime.now()  # .isoformat()
-    start_datetime = ds.attrs.get("time_min", None)
-    if start_datetime:
-        start_datetime = (
-            start_datetime.split(".")[0] + "Z"
-        )  # datetime.now().isoformat())
-    end_datetime = ds.attrs.get("time_max", None)
-    if end_datetime:
-        end_datetime = end_datetime.split(".")[0] + "Z"  # datetime.now().isoformat())
-    lonmin = -180
-    latmin = -90
-    lonmax = 180
-    latmax = 90
-    if start_datetime and end_datetime:
-        datetimeattr = None
-        cube["cube:dimensions"]["time"] = dict(
-            type="temporal", extent=[start_datetime, end_datetime]
-        )
-    if not "bbox" in ds.attrs and all(a in ds.variables for a in ["lon", "lat"]):
-        try:
-            if type(ds["lon"].data) != DASKARRAY and type(ds["lat"].data) != DASKARRAY:
-                lonmin = ds["lon"].min().values[()]
-                latmin = ds["lat"].min().values[()]
-                lonmax = ds["lon"].max().values[()]
-                latmax = ds["lat"].max().values[()]
-        except:
-            pass
-        ds.attrs["bbox"] = [lonmin, latmin, lonmax, latmax]
-    bbox = ds.attrs.get("bbox", [lonmin, latmin, lonmax, latmax])
-    geometry = {
-        "type": "Polygon",
-        "coordinates": [
-            [
-                [lonmin, latmin],
-                [lonmin, latmax],
-                [lonmax, latmax],
-                [lonmax, latmin],
-                [lonmin, latmin],
-            ]
-        ],
-    }
-    cdate = ds.attrs.get("creation_date", datetimeattr)
-    providers = [copy(PROVIDER_DEFAULT)]
-    creator_inst_id = ds.attrs.get("institution_id", None)
-    if not creator_inst_id:
-        creator_inst_id = ds.attrs.get("centre", None)
-    if creator_inst_id:
-        creator_inst = ds.attrs.get("institution", None)
-        if not creator_inst:
-            creator_inst = ds.attrs.get("centreDescription", None)
-        creator = copy(PROVIDER_DEFAULT)
-        creator["name"] = creator_inst_id
-        creator["description"] = creator_inst
-        creator["url"] = HOSTURL + "/" + xid + "/"
-        creator["roles"] = ["producer"]
-        providers.append(creator)
-    description += (
-        "\n"
-        + "You can use this dataset in xarray.\n\n"
-        + "```python"
-        + "\nimport xarray as xr"
-        + "\nimport json"
-        + "\nimport fsspec"
-        + "\nitem=json.load(fsspec.open("
-        + '\n    "'
-        + HOSTURL
-        + "/"
-        + xid
-        + '/stac"'
-        + "\n).open())"
-        + '\nasset="dkrz-disk"'
-        + '\n#asset="eerie-cloud" # from everywhere else'
-        + "\nxr.open_dataset("
-        + '\n    item["assets"][asset]["href"],'
-        + '\n    **item["assets"][asset]["xarray:open_kwargs"],'
-        + '\n    storage_options=item["assets"][asset].get("xarray:storage_options",None)'
-        + "\n)"
-        + "\n```\n"
-    )
-
-    properties = {
-        "description": description,
-        "title": " ".join(title.split(".")),
-        "created": cdate,
-        "keywords": keywords,
-        "providers": providers,
-    }
-
-    if start_datetime:
-        properties["start_datetime"] = start_datetime
-        properties["end_datetime"] = end_datetime
-
-    # Create a STAC item
-    item = Item(
-        id=xid,
-        geometry=geometry,
-        bbox=bbox,
-        datetime=datetimeattr,
-        properties=properties,
-        stac_extensions=STAC_EXTENSIONS,
-    )
-
-    store_dataset_dict = dict(store=HOSTURL, dataset=xid + "/zarr")
-    if ("nextgems" in xid or "dyamond" in xid) and "icon" in xid.lower():
-        store_dataset_dict["dataset"] = xid + "/kerchunk"
-    var_store_dataset_dict = dict()
-    # Add data variables as assets
-    for var_name, var_data in ds.data_vars.items():
-        var_store_dataset_dict[var_name] = copy(store_dataset_dict)
-
-    extra_fields = {
-        "Volume": str(int(ds.nbytes / 1024**3)) + " GB uncompressed",
-        "No of data variables": str(len(ds.data_vars)),
-    }
-    source_enc = ds.encoding.get("source", None)
-    if source_enc:
-        XOK = {
-            "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_ZARR),
+def add_asset_for_ds(item: Item, k: str, ds, item_id: str) -> Item:
+    open_kwargs = {}
+    open_config = {}
+    extra_fields = {}
+    if type(ds) == str:
+        href = ds
+    else:
+        href = ds.encoding.get("source", ds.attrs.get("href"))
+        volume = ds.nbytes / 1024**2
+        extra_fields = {
+            "Volume": str(math.ceil(volume / 1024)) + " GB uncompressed",
+            "No of data variables": str(len(ds.data_vars)),
         }
-        if source_enc.startswith("reference"):
-            XOK = {
-                "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_KERCHUNK),
-                "xarray:storage_options": copy(XSO),
-            }
-        extra_fields.update(XOK)
+        total_chunks = ds.attrs.get("total_no_of_chunks")
+        if total_chunks:
+            extra_fields["Estimated avergae chunk size [MB]"] = str(
+                math.ceil(volume / int(total_chunks))
+            )
+            extra_fields["Estimated total files (chunks)"] = total_chunks
+        open_kwargs = ds.attrs.get("open_kwargs")
+        open_config = {
+            "xarray:open_kwargs": open_kwargs
+            if open_kwargs
+            else (copy(XARRAY_DEF) | copy(XARRAY_ZARR)),
+            "xarray:storage_options": ds.attrs.get("open_storage_options"),
+        }
+
+    if not href:
+        print(f"Could not add any asset for item id {item_id}")
+        return item
+        # raise ValueError("Neither found 'source' in encoding nor 'ref' in attributes")
+
+    if href.startswith("reference"):
+        if not open_config.get("xarray:storage_options"):
+            open_config["xarray:storage_options"] = copy(XSO)
+        if not open_kwargs:
+            open_config["xarray:open_kwargs"] = copy(XARRAY_DEF) | copy(XARRAY_KERCHUNK)
+
+    extra_fields.update(open_config)
+    access_title = "Zarr-access from Lustre"
+    if k == "dkrz-disk":
+        newhref = href
+        if href.startswith("/"):
+            newhref = "file://" + href
         item.add_asset(
             "dkrz-disk",
             Asset(
-                href=source_enc,
+                href=newhref,
                 media_type=MediaType.ZARR,
                 roles=["data"],
-                title="Zarr-access on dkrz",
+                title=access_title,
+                description="Chunk-based access on Raw Data",
+                extra_fields=copy(extra_fields),
+            ),
+        )
+    elif k == "dkrz-cloud":
+        access_title = "Zarr-access from Cloud Storage"
+        item.add_asset(
+            "dkrz-cloud",
+            Asset(
+                href=href,
+                media_type=MediaType.ZARR,
+                roles=["data"],
+                title=access_title,
+                description="Chunk-based access on Raw Data",
+                extra_fields=copy(extra_fields),
+            ),
+        )
+    elif k == "eerie-cloud":
+        item = add_eerie_cloud_asset(item, href, extra_fields)
+        item.add_asset(
+            "xarray_view",
+            Asset(
+                href="/".join(href.split("/")[:-1]) + "/",
+                media_type=MediaType.HTML,
+                title="Xarray dataset",
+                roles=["overview"],
+                description="HTML representation of the xarray dataset",
+            ),
+        )
+    elif k == "dkrz-archive":
+        access_title = "Zarr-access from Tape Archive"
+        item.add_asset(
+            "dkrz-tape",
+            Asset(
+                href=href,
+                media_type=MediaType.ZARR,
+                roles=["data"],
+                title=access_title,
                 description="Chunk-based access on raw data",
                 extra_fields=copy(extra_fields),
             ),
         )
-        extra_fields.pop("xarray:storage_options", None)
-        extra_fields.update(
-            {
-                "xarray:open_kwargs": copy(XARRAY_DEF) | copy(XARRAY_ZARR),
-            }
-        )
-        extra_fields["alternate"] = copy(ALTERNATE_KERCHUNK)
-        extra_fields["alternate"]["processed"]["href"] = HOSTURL + "/" + xid + "/zarr"
-        extra_fields["alternate"]["processed"][
-            "name"
-        ] = "Rechunked and uniformly compressed data"
-        item.add_asset(
-            "eerie-cloud",
-            Asset(
-                href=HOSTURL + "/" + xid + "/kerchunk",
-                media_type=MediaType.ZARR,
-                roles=["data"],
-                title="Zarr-access through eerie cloud",
-                description="Chunk-based access on raw-encoded data",
-                extra_fields=extra_fields,
-            ),
-        )
     else:
-        item.add_asset(
-            "EERIE cloud",
-            Asset(
-                href=HOSTURL + "/" + xid + "/zarr",
-                media_type=MediaType.ZARR,
-                roles=["data"],
-                title="Zarr access on uniform zarr data",
-                description="Chunk-based access through eerie cloud server, data is processed on server-side",
-                extra_fields=extra_fields,
-            ),
-        )
-    item.add_asset(
-        "xarray_view",
-        Asset(
-            href=HOSTURL + "/" + xid + "/",
-            media_type=MediaType.HTML,
-            title="Xarray dataset",
-            roles=["overview"],
-            description="HTML representation of the xarray dataset",
-        ),
-    )
-    item.add_asset(
-        "jupyterlite",
-        Asset(
-            href=JUPYTERLITE,
-            media_type=MediaType.HTML,
-            title="Jupyterlite access",
-            roles=["analysis"],
-            description="Web-assembly based analysis platform with access to this item",
-        ),
-    )
-    gridlook_url = GRIDLOOK
-    if any(b in xid for b in ["healpix", "nextgems", "orcestra"]):
-        if not any(c in xid for c in ["gr025", "native"]):
-            gridlook_url = GRIDLOOK_HP
-    item.add_asset(
-        "gridlook",
-        Asset(
-            href=gridlook_url + "#" + HOSTURL + "/" + xid + "/stac",
-            media_type=MediaType.HTML,
-            title="Visualization with gridlook",
-            roles=["Visualization"],
-            description="Visualization with gridlook",
-        ),
+        raise ValueError(k + " not implemented")
+    return item
+
+
+def get_item_from_source(
+    ds: xr.Dataset,
+    item_id: str,
+    title: str = None,
+    collection_id: str = None,
+    exp_license: str = None,
+    l_eeriecloud: bool = False,
+    main_item_key: str = None,
+) -> Item:
+    global HOSTURL
+    stac_extensions = copy(STAC_EXTENSIONS)
+    ds_attrs = get_from_attrs(copy(NEEDED_ATTRS), ds)
+    if not title:
+        title = ds_attrs.get("title", item_id)
+    tmin = ds_attrs.get("time_min")
+    if not tmin or "-" not in str(tmin):
+        ds_attrs["time_min"], ds_attrs["time_max"] = get_time_min_max(ds)
+    if not ds_attrs.get("bbox"):
+        ds_attrs["bbox"] = get_bbox(ds)
+
+    stac_href = HOSTURL + "/" + item_id
+    if l_eeriecloud:
+        stac_href += "/stac"
+        stac_extensions.append(ALTERNATE_ASSETS)
+    if collection_id:
+        stac_href = f"{HOSTURL}/collections/{collection_id}/items/{item_id}"
+
+    providers = get_providers(ds_attrs)
+    license = get_spdx_license(exp_license)
+    cube = get_cube_extension(ds, ds_attrs["time_min"], ds_attrs["time_max"])
+
+    properties = {
+        "title": title,
+        "description": get_description(ds, stac_href, main_item_key),
+        "created": ds_attrs["creation_date"],
+        "keywords": get_keywords(title),
+        "providers": providers,
+        "license": license,
+        "variables": list(cube["cube:variables"].keys()),
+        **cube,
+    }
+    if "crs" in ds.variables:
+        zoomint = math.log2(int(ds["crs"].attrs["healpix_nside"]))
+        properties["zoom"] = int(math.log2(int(ds["crs"].attrs["healpix_nside"])))
+
+    for dsatt, dsattval in ds.attrs.items():
+        if not properties.get(dsatt) and not "time" in dsatt.lower():
+            properties[dsatt] = dsattval
+
+    datetimeattr = datetime.now()
+    sdt = properties.get("start_datetime")
+    if ds_attrs.get("time_min") != None:
+        datetimeattr = None
+        properties["start_datetime"] = ds_attrs["time_min"]
+        properties["end_datetime"] = ds_attrs["time_max"]
+    elif sdt:
+        if "-" not in str(sdt):
+            properties["start_datetime"] = None
+            properties["end_datetime"] = None
+        else:
+            datetimeattr = None
+
+    geometry = get_geometry(ds_attrs["bbox"])
+
+    # Create a STAC item
+    item = Item(
+        id=item_id,
+        geometry=geometry,
+        bbox=ds_attrs["bbox"],
+        # bbox=get_bbox(ds),
+        datetime=datetimeattr,
+        properties=properties,
+        stac_extensions=stac_extensions,
     )
 
-    itemdict = item.to_dict()
-    #    for asset in itemdict["assets"].keys():
-    itemdict["links"] = [
-        dict(
-            rel="DOC",
-            href="https://easy.gems.dkrz.de/simulations/EERIE/eerie_data-access_online.html",
-            title="Usage of the eerie.cloud",
+    return item
+
+
+def xarray_zarr_datasets_to_stac_item(
+    dset_dict_inp: dict,
+    item_id: str = None,
+    collection_id: str = None,
+    exp_license: str = None,
+    title: str = None,
+) -> dict:
+    global ASSET_TYPES
+    dset_dict = {a: b for a, b in dset_dict_inp.items() if b is not None}
+
+    if not dset_dict:
+        raise ValueError("Your input does not have any datasets")
+
+    main_item_key = None
+    item_ds = None
+    for a in ASSET_TYPES:
+        if a in dset_dict:
+            if isinstance(dset_dict[a], xr.Dataset):
+                item_ds = dset_dict[a]
+                main_item_key = None
+                break
+
+    if not item_ds:
+        raise ValueError(
+            f"asset types {','.join(list(dset_dict.keys()))} not in valid asset types {','.join(ASSET_TYPES)}"
         )
-    ]
+
+    l_eerie = "eerie-cloud" in dset_dict
+    dscloud = dset_dict.get("eerie-cloud")
+    if not isinstance(dscloud, xr.Dataset):
+        dscloud = dset_dict.get("dkrz-cloud")
+    elif dscloud == item_ds and not item_id:
+        item_id = dscloud.attrs["_xpublish_id"]
+    if not isinstance(dscloud, xr.Dataset):
+        dscloud = None
+
+    item = get_item_from_source(
+        item_ds,
+        item_id,
+        title,
+        collection_id,
+        exp_license,
+        main_item_key=main_item_key,
+        l_eeriecloud=l_eerie,
+    )
+    for k, ds in dset_dict.items():
+        item = add_asset_for_ds(item, k, ds, item_id)
+
+    if dscloud:
+        item.add_asset(
+            "jupyterlite",
+            Asset(
+                href=JUPYTERLITE,
+                media_type=MediaType.HTML,
+                title="Jupyterlite access",
+                roles=["analysis"],
+                description="Web-assembly based analysis platform with access to this item",
+            ),
+        )
+        gridlook_href = GRIDLOOK + "#"
+        if l_eerie:
+            gridlook_href += defaults["EERIE_CLOUD_URL"] + "/" + item.id + "/stac"
+        else:
+            gridlook_href += dscloud.encoding["source"]
+        item.add_asset(
+            "gridlook",
+            Asset(
+                href=gridlook_href,
+                media_type=MediaType.HTML,
+                title="Visualization with gridlook",
+                roles=["Visualization"],
+                description="Visualization with gridlook",
+            ),
+        )
+
+    itemdict = item.to_dict()
+    itemdict = make_json_serializable(itemdict)
+
+    itemdict = get_and_set_zoom(itemdict)
+    itemdict["providers"] = [defaults["PROVIDER_DKRZ"]]
+    itemdict["properties"]["asset_types"] = list(dset_dict.keys())
+    for delitem in ["summary", "history"]:
+        itemdict["properties"].pop(delitem, None)
     itemdict["links"].append(
         dict(
             rel="collection",
@@ -349,30 +420,266 @@ def xarray_to_stac_item(ds):
     #
     # gridlook
     #
-    griddict = copy(store_dataset_dict)
-    if "icon-esm-er" in xid and "native" in xid:
+    itemdict = get_gridlook(itemdict, item_ds)
+    itemdict = make_json_serializable(itemdict)
+
+    return itemdict
+
+
+def enrich_ds_with_apiattrs_from_conf(
+    item_ds: XarrayDataset,
+    local_conf: Dict[str, str],
+    item_title: str,
+    full_metadata_from_intake: bool = False,
+    overwrite: bool = False,
+) -> XarrayDataset:
+    """
+    Prepare Xarray dataset for STAC item creation by setting required attributes.
+
+    Args:
+        item_ds: Xarray dataset to prepare
+        local_conf: Configuration dictionary containing metadata
+        item_title: Title of the STAC item
+
+    Returns:
+        Prepared Xarray dataset with required attributes set
+    """
+    if full_metadata_from_intake:
+        item_ds.attrs.update(local_conf.get("from_intake"))
+    stac_collection_id = copy(defaults["STAC_COLLECTION_ID_TEMPLATE"])
+    for template_element_raw in defaults["STAC_COLLECTION_ID_TEMPLATE"].split("-") + [
+        "frequency"
+    ]:
+        template_element = template_element_raw.replace("<", "").replace(">", "")
+        if not item_ds.attrs.get(template_element) or overwrite:
+            if local_conf.get(template_element):
+                item_ds.attrs[template_element] = local_conf[template_element]
+    item_ds = set_grid_label(item_title, item_ds)
+    item_ds = set_realm(item_title, item_ds)
+    return set_frequency(item_title, item_ds)
+
+
+def get_spdx_license(exp_license: str) -> str:
+    if exp_license:
+        URL_LIST_OF_LICENSES = "https://raw.githubusercontent.com/spdx/license-list-data/refs/heads/main/json/licenses.json"
+        lol = json.load(fsspec.open(URL_LIST_OF_LICENSES).open())["licenses"]
+        for license_dict in lol:
+            if (
+                exp_license == license_dict["licenseId"]
+                or exp_license in license_dict["name"]
+                or license_dict["name"] in exp_license
+            ):
+                return license_dict["licenseId"]
+    return "other"
+
+
+def get_bbox(
+    ds: xr.Dataset,
+    lonmin: float = -180.0,
+    latmin: float = -90.0,
+    lonmax: float = 180.0,
+    latmax: float = 90.0,
+) -> list:
+    if all(a in ds.variables for a in ["lon", "lat"]):
+        ds_withoutcoords = ds.reset_coords()
+        try:
+            lonmin = ds_withoutcoords["lon"].min().values[()]
+            latmin = ds_withoutcoords["lat"].min().values[()]
+            lonmax = ds_withoutcoords["lon"].max().values[()]
+            latmax = ds_withoutcoords["lat"].max().values[()]
+        except:
+            pass
+
+    return [lonmin, latmin, lonmax, latmax]
+
+
+def get_cube_extension(ds: xr.Dataset, time_min: str, time_max: str) -> dict:
+    cube = dict()
+    cube["cube:dimensions"] = dict()
+    cube["cube:variables"] = dict()
+    for dv in ds.data_vars:
+        cube["cube:variables"][dv] = dict(
+            type="data",
+            dimensions=[*ds[dv].dims],
+            unit=ds[dv].attrs.get("units", "Not set"),
+            description=ds[dv].attrs.get("long_name", dv),
+            # attrs=ds[dv].attrs
+        )
+    if time_min and time_max:
+        cube["cube:dimensions"]["time"] = dict(
+            type="temporal", extent=[time_min, time_max]
+        )
+    return cube
+
+
+def get_from_attrs(needed_attrs: list, ds: xr.Dataset) -> dict:
+    datetimeattr = datetime.now()  # .isoformat()
+    from_attrs = dict()
+    for key in needed_attrs:
+        ds_attr = ds.attrs.get(key)
+        if ds_attr:
+            from_attrs[key] = str(ds_attr)
+            if key == "time_min" or key == "time_max":
+                from_attrs[key] = from_attrs[key].split(".")[0] + "Z"
+        if key == "creation_date" and not from_attrs.get(key):
+            from_attrs[key] = datetimeattr
+
+    return from_attrs
+
+
+def get_geometry(bbox: list) -> dict:
+    return {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [bbox[0], bbox[1]],
+                [bbox[0], bbox[3]],
+                [bbox[2], bbox[3]],
+                [bbox[2], bbox[1]],
+                [bbox[0], bbox[1]],
+            ]
+        ],
+    }
+
+
+def get_time_min_max(ds: xr.Dataset) -> (str, str):
+    time_min = time_max = None
+    if "time" in ds.variables:
+        time_min = str(ds["time"].min().values[()]).split(".")[0] + "Z"
+        time_max = str(ds["time"].max().values[()]).split(".")[0] + "Z"
+    return time_min, time_max
+
+
+def get_providers(ds_attrs: dict) -> list:
+    providers = [copy(defaults["PROVIDER_DKRZ"])]
+    creator_inst_id = ds_attrs.get("institution_id", ds_attrs.get("centre"))
+    if creator_inst_id:
+        creator_inst = ds_attrs.get(
+            "institution", ds_attrs.get("centreDescription", "N/A")
+        )
+        creator = copy(defaults["PROVIDER_DKRZ"])
+        creator["name"] = creator_inst_id
+        creator["description"] = creator_inst
+        creator["url"] = HOSTURLS.get(creator_inst_id, "N/A")
+        creator["roles"] = ["producer"]
+        providers.append(creator)
+    return providers
+
+
+def get_keywords(keywordstr: str) -> list:
+    split1 = keywordstr.split("-")
+    split2 = [a.split("_") for a in split1]
+    return [element for sublist in split2 for element in sublist]
+
+
+def get_description(ds: xr.Dataset, href: str = None, main_item_key: str = None) -> str:
+    source = next(
+        (
+            ds.attrs.get(default)
+            for default in SOURCE_KEYS
+            if ds.attrs.get(default) is not None
+        ),
+        "not Set",
+    )
+    exp = next(
+        (
+            ds.attrs.get(default)
+            for default in EXPERIMENT_KEYS
+            if ds.attrs.get(default) is not None
+        ),
+        "not Set",
+    )
+    project = next(
+        (
+            ds.attrs.get(default)
+            for default in PROJECT_KEYS
+            if ds.attrs.get(default) is not None
+        ),
+        "not Set",
+    )
+    institute = next(
+        (
+            ds.attrs.get(default)
+            for default in INSTITUTE_KEYS
+            if ds.attrs.get(default) is not None
+        ),
+        "not Set",
+    )
+    description = (
+        "\n\nSimulation data from project '"
+        + project
+        + "' produced by Earth System Model '"
+        + source
+        + "' and run by institution '"
+        + institute
+        + "' for the experiment '"
+        + exp
+        + "'"
+    )
+    if href:
+        snippet = defaults["ITEM_SNIPPET"].replace(
+            "REPLACE_ITEMURI",
+            #'"'+defaults["STAC_API_URL_EXT"]+"/collections/"+stac_collection_id_lower+"/items/"+item_id+'"'
+            href,
+        )
+        if main_item_key:
+            snippet = snippet.replace("dkrz-disk", main_item_key)
+        description += snippet
+
+    if ds.attrs.get("title"):
+        description += "\n\n # " + ds.attrs.get("title")
+    for descatt in ["description", "summary"]:
+        if ds.attrs.get(descatt):
+            description += "\n\n" + ds.attrs.get(descatt)
+    return description
+
+
+def refine_for_eerie(item_id: str, griddict: dict) -> dict:
+    if "icon-esm-er" in item_id and "native" in item_id:
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
-        if "atmos" in xid or "land" in xid:
+        if "atmos" in item_id or "land" in item_id:
             griddict["dataset"] = "icon_grid_0033_R02B08_G.zarr"
-        elif "ocean" in xid:
+        elif "ocean" in item_id:
             griddict["dataset"] = "icon_grid_0016_R02B09_O.zarr"
-    if "gr025" in xid:
+    if "gr025" in item_id:
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
-        if ("ifs-amip" in xid or "ifs-fesom2" in xid) and "atmos" in xid:
+        if "ifs-amip" in item_id or "ifs-fesom2" in item_id:
             griddict["dataset"] = "gr025_descending.zarr"
         else:
             griddict["dataset"] = "gr025.zarr"
-    if "era5" in xid:
+    if "era5" in item_id:
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
         griddict["dataset"] = "era5.zarr"
 
-    if var_store_dataset_dict:
+    return griddict
+
+
+def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) -> dict:
+    global L_API
+    if not L_API:
+        item_id = itemdict["id"]
+        if alternative_uri:
+            store_dataset_dict = dict(
+                store="/".join(alternative_uri.split("/")[0:-1]),
+                dataset=alternative_uri.split("/")[-1],
+            )
+        else:
+            store_dataset_dict = dict(
+                store=defaults["EERIE_CLOUD_URL"] + "/",
+                dataset=defaults["EERIE_CLOUD_URL"] + "/" + item_id + "/zarr",
+            )
+        var_store_dataset_dict = dict()
+        # Add data variables as assets
+        #    for var_name, var_data in ds.data_vars.items():
+        for var_name, var_data in ds.variables.items():
+            var_store_dataset_dict[var_name] = copy(store_dataset_dict)
+
         best_choice = next(
             (
                 a
@@ -394,26 +701,79 @@ def xarray_to_stac_item(ds):
             print("Oh no best choice")
             best_choice == list(var_store_dataset_dict.keys())[0]
         itemdict["default_var"] = best_choice
-    itemdict["name"] = title
-    itemdict["levels"] = [
-        dict(
-            name=xid,
-            time=copy(store_dataset_dict),
-            grid=griddict,
-            datasources=var_store_dataset_dict,
-        )
-    ]
-    itemdict["properties"].update(cube)
-    for dsatt, dsattval in ds.attrs.items():
-        if (
-            not dsatt in itemdict["properties"]
-            and not dsatt in itemdict
-            and not "time" in dsatt.lower()
-        ):
-            itemdict["properties"][dsatt] = dsattval
+        itemdict["name"] = itemdict["properties"]["title"]
 
-    itemdict = make_json_serializable(itemdict)
+        griddict = copy(store_dataset_dict)
+        if not alternative_uri:
+            griddict = refine_for_eerie(item_id, griddict)
+
+        itemdict["levels"] = [
+            dict(
+                name=item_id,
+                time=copy(store_dataset_dict),
+                grid=griddict,
+                datasources=var_store_dataset_dict,
+            )
+        ]
     return itemdict
+
+
+def add_eerie_cloud_asset(item: Item, href: str, extra_fields: dict) -> Item:
+    href_kerchunk = "/".join(href.split("/")[:-1]) + "/kerchunk"
+    href_zarr = "/".join(href.split("/")[:-1]) + "/zarr"
+    extra_fields["alternate"] = copy(ALTERNATE_KERCHUNK)
+    extra_fields["alternate"]["processed"]["href"] = href_zarr
+    extra_fields["alternate"]["processed"][
+        "name"
+    ] = "Rechunked and uniformly compressed data"
+    item.add_asset(
+        "eerie-cloud",
+        Asset(
+            href=href_kerchunk,
+            media_type=MediaType.ZARR,
+            roles=["data"],
+            title="Zarr-access through Eerie Cloud",
+            description="Chunk-based access on raw-encoded data",
+            extra_fields=extra_fields,
+        ),
+    )
+    return item
+
+
+def add_links(itemdict: dict, l_eeriecloud: bool) -> dict:
+    if l_eeriecloud:
+        itemdict["links"] = [
+            dict(
+                rel="DOC",
+                href="https://easy.gems.dkrz.de/simulations/EERIE/eerie_data-access_online.html",
+                title="Usage of the eerie.cloud",
+            )
+        ]
+        itemdict["links"].append(
+            dict(
+                rel="collection",
+                href="/".join(
+                    defaults["EERIE_CLOUD_URL"].split("/")[:-1]
+                    + ["stac-collection-all.json"]
+                ),
+                type="application/json",
+            )
+        )
+    return itemdict
+
+
+def make_json_serializable(obj):
+    """Recursively convert non-JSON serializable values to serializable formats."""
+    if isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, bytes):
+        return obj.decode(errors="ignore")  # Convert bytes to string
+    else:
+        try:
+            json.dumps(obj)  # Test if serializable
+            return obj  # If it works, return as is
+        except (TypeError, OverflowError):
+            return str(obj)  # Convert unsupported types to strings
 
 
 class Stac(Plugin):
@@ -443,12 +803,13 @@ class Stac(Plugin):
                 dict(rel="parent", href=PARENT_CATALOG, type="application/json")
             )
             coldict["providers"][0] = coldict["providers"][0]["name"]
-            dslist = json.load(fsspec.open(HOSTURL).open())
+            dslist = eval(requests.get(HOSTURL).text)
             for item in dslist:
                 coldict["links"].append(
                     dict(
                         rel="child",
                         href=HOSTURL + "/" + item + "/stac",
+                        title=item,
                         type="application/json",
                     )
                 )
@@ -474,7 +835,15 @@ class Stac(Plugin):
             #                raise HTTPException(status_code=404, detail=f"Dataset does not contain all keys needed for a STAC Item")
             if resp is None:
                 # try:
-                item_dict = xarray_to_stac_item(ds)
+                dssource = ds.encoding.pop("source", None)
+                ds.encoding["source"] = "/".join(
+                    [HOSTURL, ds.attrs["_xpublish_id"], "zarr"]
+                )
+
+                item_dict = xarray_zarr_datasets_to_stac_item(
+                    {"dkrz-disk": dssource, "eerie-cloud": ds}
+                )
+                ds.encoding["source"] = dssource
                 resp = JSONResponse(item_dict)
                 # except:
                 #    raise HTTPException(status_code=404, detail="Could not create a STAC Item")
