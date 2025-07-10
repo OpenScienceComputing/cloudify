@@ -1,3 +1,4 @@
+#!/bin/bash
 #conda install -c conda-forge micromamba
 micromamba env create -f environment.yaml -y 
 eval "$(micromamba shell hook --shell bash)"
