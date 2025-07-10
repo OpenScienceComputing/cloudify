@@ -5,7 +5,10 @@ from cloudify.utils.datasethelper import (
     find_data_sources,
     reset_encoding_get_mapper,
     adapt_for_zarr_plugin_and_stac,
-    set_compression
+    apply_lossy_compression,
+    set_compression,
+    set_or_delete_coords,
+    gribscan_to_float
 )
 import xarray as xr
 
@@ -65,6 +68,7 @@ def add_eerie(
     Raises:
         ValueError: If required source catalog is not accessible
     """
+    l_dask=True
     # EERIE catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
     
@@ -133,9 +137,11 @@ def add_eerie(
         if "native" in dsid:
             dsone = dsonedict.get(
                 next(
-                    k
-                    for k in dsonedict.keys()
-                    if all(b in dsid for b in k.split("_"))
+                    (
+                        k
+                        for k in dsonedict.keys()
+                        if all(b in dsid for b in k.split("_"))
+                    ), "nothing_found"
                 ),
                 "nothing_found"
             )
@@ -167,13 +173,12 @@ def add_eerie(
         # lossy has to come first!
         if not "grid" in dsid:
             if "native" in dsid or "_11" in dsid or "_10" in dsid:
-                mapper_dict, ds = apply_lossy_compression(mapper_dict, dsid, ds, l_dask)
-        if l_dask:
-            mapper_dict, ds = reset_encoding_get_mapper(
-                mapper_dict,
-                dsid,
-                ds,  # desc=desc
-            )
+                ds = apply_lossy_compression(ds, l_dask)
+        mapper_dict, ds = reset_encoding_get_mapper(
+            mapper_dict,
+            dsid,
+            ds,  # desc=desc
+        )
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
         ds = set_compression(ds)
         dsdict[dsid] = ds

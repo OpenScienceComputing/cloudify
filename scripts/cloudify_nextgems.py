@@ -200,7 +200,7 @@ def add_nextgems(
         print("try to set crs")
         if "crs" in ds.variables:
             if len(str(ds["crs"].attrs.get("healpix_nside", "No"))) >= 4:
-                mapper_dict, ds = apply_lossy_compression(mapper_dict, ia, ds)
+                ds = apply_lossy_compression(ds)
         elif "healpix" in ia:
             ds = add_healpix(ia, ds)
         dsdict[ia] = ds
