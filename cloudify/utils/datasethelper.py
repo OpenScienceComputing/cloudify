@@ -38,6 +38,8 @@ DEFAULT_COORDS = [
     "longitude"
 ]
 
+import numcodecs
+rounding = numcodecs.BitRound(keepbits=12)
 
 def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Cache-control"] = "max-age=3600"
@@ -207,33 +209,27 @@ def gribscan_to_float(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def lossy_compress_chunk(partds: xr.Dataset) -> xr.Dataset:
+def lossy_compress_chunk(partds) :
     """
     Apply lossy compression to dataset using BitRound.
 
-    This function applies BitRound compression with 12 keepbits to the input dataset,
+    This function applies BitRound compression with 12 keepbits to the input data array,
     which reduces precision while maintaining reasonable accuracy.
 
     Args:
         partds (xr.Dataset): Input dataset to compress
 
     Returns:
-        xr.Dataset: Compressed dataset
+        np.Array: Compressed dataset
 
-    Raises:
-        ValueError: If input is not an xarray Dataset
     """
-    if not isinstance(partds, xr.Dataset):
-        raise ValueError("Input must be an xarray Dataset")
     
-    import numcodecs
-    rounding = numcodecs.BitRound(keepbits=12)
     return rounding.decode(rounding.encode(partds))
 
 
 def apply_lossy_compression(
-    mapper_dict: dict, dsid: str, ds: xr.Dataset, L_DASK: bool = True
-) -> None:
+    ds: xr.Dataset, L_DASK: bool = True
+) -> xr.Dataset:
     """
     Apply lossy compression to dataset chunks and store in Zarr format.
 
@@ -241,44 +237,25 @@ def apply_lossy_compression(
     them in Zarr format. Supports both Dask and non-Dask operations.
 
     Args:
-        mapper_dict (dict): Dictionary mapping dataset IDs to file paths
-        dsid (str): Dataset ID
         ds (xr.Dataset): Dataset to compress
         L_DASK (bool): Whether to use Dask for parallel processing
 
-    Raises:
-        ValueError: If dataset ID is invalid or compression fails
-        ImportError: If Dask is required but not available
     """
-    if not isinstance(dsid, str):
-        raise ValueError("dsid must be a string")
     
-    try:
-        # Initialize mapper if not exists
-        if dsid not in mapper_dict:
-            mapper_dict[dsid] = fsspec.get_mapper(f"file:///{dsid}.zarr")
-        
-        if L_DASK:
-            try:
-                from dask.distributed import get_client
-                client = get_client()
-                client.publish_dataset(ds)
-            except ImportError:
-                raise ImportError("Dask is required for parallel processing")
-        
-        # Ensure dataset is chunked
-        if not hasattr(ds, "chunks"):
-            ds = ds.chunk("auto")
-        
-        # Process each chunk
-        for chunk in ds:
-            mapper_dict[dsid] = fsspec.get_mapper(f"file:///{dsid}.zarr")
-            compressed_chunk = lossy_compress_chunk(chunk)
-            compressed_chunk.to_zarr(mapper_dict[dsid], mode="a")
-            
-    except Exception as e:
-        raise ValueError(f"Failed to apply compression: {str(e)}")
-
+    se=ds.encoding.get("source")
+    if L_DASK:    
+        ds=xr.apply_ufunc(
+                lossy_compress_chunk,
+                ds,
+                dask="parallelized",
+                keep_attrs="drop_conflicts"
+                )
+    else:
+        for var in ds.data_vars:
+            ds[var].encoding["filters"]=numcodecs.BitRound(keepbits=12)            
+    ds.encoding["source"]=se         
+    
+    return ds
 
 def set_compression(ds: xr.Dataset) -> xr.Dataset:
     """
