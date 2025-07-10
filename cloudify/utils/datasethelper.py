@@ -38,9 +38,6 @@ DEFAULT_COORDS = [
     "longitude"
 ]
 
-import numcodecs
-rounding = numcodecs.BitRound(keepbits=12)
-
 def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Cache-control"] = "max-age=3600"
     response.headers["X-EERIE-Request-Id"] = "True"
@@ -223,7 +220,8 @@ def lossy_compress_chunk(partds) :
         np.Array: Compressed dataset
 
     """
-    
+    import numcodecs
+    rounding = numcodecs.BitRound(keepbits=12)
     return rounding.decode(rounding.encode(partds))
 
 
