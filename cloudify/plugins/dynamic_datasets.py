@@ -1,63 +1,58 @@
 from xpublish import Plugin, hookimpl
-import intake
-import pickle
-
-CATALOG_FILE = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
-PICKLE_TRUNK = "/work/bm1344/DKRZ/pickle/"
+import xarray as xr
 from fastapi import HTTPException
-
+import pathlib
 
 class DynamicKerchunk(Plugin):
     name: str = "dynamic-kerchunk"
+    source: str = "/work/bm1344/DKRZ/km-scale-cloud-inputs/"
+    url_scheme: str = ["host","port","dataset"]
+    url_split: str = "_"
 
     @hookimpl
     def get_datasets(self):
-        global dsdict
-        return list(dsdict.keys())
+        return [
+            str(path).split('_')[2]
+            for path in pathlib.Path(self.source).iterdir()
+        ]
 
     @hookimpl
     def get_dataset(self, dataset_id: str):
-        global dsdict
-        if dataset_id not in dsdict:
+        inputs = self.get_datasets()
+        if dataset_id not in inputs:
             raise HTTPException(status_code=404, detail=f"Could not find {dataset_id}")
-        return dsdict[dataset_id]
+        
+        input_urls = list(pathlib.Path(self.source).glob("*"+dataset_id+"*"))
+        if not input_urls:
+            raise HTTPException(status_code=404, detail=f"Could not find {dataset_id}")
+        elif len(input_urls) > 1:
+            raise HTTPException(status_code=404, detail=f"Found multiple {dataset_id}")
 
-    #    @hookimpl
-    def get_datasets2(self):
-        cat = intake.open_catalog(CATALOG_FILE)
-        dsets = list(cat)
-        pickle_abs = list_pickles(PICKLE_TRUNK)
-        pickle_list = ["_".join(a.split("/")[-2:]) for a in pickle_abs]
-        pickle_list = [".".join(a.split(".")[:-1]) for a in pickle_list]
-        dsets += pickle_list
-        dsetsnew = [a + "_12bit" for a in dsets if not "remap" in a and not "025" in a]
-        dsets_compr = [a for a in dsets if a + "_12bit" not in dsetsnew]
-        dsetsnew += dsets_compr
-        dsetsnew.sort()
-        return dsetsnew
+        input_url = input_urls[0]
 
-    #    @hookimpl
-    def get_dataset2(self, dataset_id: str):
-        lcompress = False
-        if dataset_id.endswith("_12bit"):
-            lcompress = True
-            dataset_id = dataset_id.replace("_12bit", "")
-
-        cat = intake.open_catalog(CATALOG_FILE)
-        dsets = list(cat)
-        pickle_abs = list_pickles(PICKLE_TRUNK)
-        pickle_list = ["_".join(a.split("/")[-2:]) for a in pickle_abs]
-        pickle_list = [".".join(a.split(".")[:-1]) for a in pickle_list]
-        if dataset_id in dsets or any([dataset_id in a for a in pickle_list]):
-            if dataset_id in dsets:
-                ds = cat[dataset_id].to_dask()
-            else:
-                fn = pickle_abs[pickle_list.index(dataset_id)]
-                ds = pickle.load(fs.open(fn).open())
-                # if "fesom" in dsid
-                # apply_ufunc
-                # set encoding
-
-            return ds.squeeze(drop=True)
-
-        return None
+        if pathlib.Path(input_url).is_dir():
+            try:
+                return xr.open_dataset(
+                    input_url,
+                    engine="kerchunk",
+                    chunks="auto"
+                )
+            except:
+                raise HTTPException(status_code=404, detail=f"Could not open {input_url}")
+        else:
+            input_url = (
+                "http://"+input_url.split(self.url_split)[0]+
+                ":"+input_url.split(self.url_split)[1]+
+                "/"+input_url.split(self.url_split)[2]+
+                "/kerchunk"
+            )
+            try:
+                ds = xr.open_dataset(
+                    input_url,
+                    chunks=None,
+                    engine="zarr"
+                    )
+                ds.encoding["source"] = input_url
+                return ds
+            except:
+                raise HTTPException(status_code=404, detail=f"Could not open {input_url}")
