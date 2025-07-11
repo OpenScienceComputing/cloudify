@@ -14,8 +14,8 @@ We differentiate between data providers and data consumers.
 ### Provisioning
 
 - [Python examples](scripts)
-    -[Dynamic datasets](scripts/host_dynamic.py)
-    -[Eerie-cloud like](scripts/cataloghost.py)
+    - [Dynamic datasets](scripts/host_dynamic.py)
+    - [Eerie-cloud like](scripts/cataloghost.py)
 - [Workshop](workshop)
 
 #### With Dask to apply functions before hosting:
