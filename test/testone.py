@@ -2,7 +2,6 @@ import os
 import intake
 from cloudify.plugins.dynamic_datasets import *
 from cloudify.plugins.dynamic_variables import *
-from cloudify.plugins.exposer import *
 from cloudify.plugins.geoanimation import *
 from cloudify.utils.daskhelper import *
 import xarray as xr
