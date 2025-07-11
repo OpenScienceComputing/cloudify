@@ -143,7 +143,7 @@ def create_zmetadata(dataset: xr.Dataset) -> dict:
     for key, dvar in dataset.variables.items():
         da = dataset[key]
         encoded_da = encode_zarr_variable(dvar, name=key)
-        encoding = extract_zarr_variable_encoding(dvar)
+        encoding = extract_zarr_variable_encoding(dvar, zarr_format=ZARR_FORMAT)
         zattrs = _extract_dataarray_zattrs(encoded_da)
         zattrs = _extract_dataarray_coords(da, zattrs)
         zmeta['metadata'][f'{key}/{attrs_key}'] = zattrs

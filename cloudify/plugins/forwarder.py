@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from typing import AsyncGenerator
 from fastapi import HTTPException
 import aiohttp
+from typing import Sequence
+from xpublish.plugins import Dependencies
 
 async def stream_from_another_server(
     url: str
@@ -44,13 +46,14 @@ class ForwardPlugin(Plugin):
             prefix=self.dataset_router_prefix, tags=list(self.dataset_router_tags)
         )
 
-        @router.api_route("/{key}", methods=["GET", "HEAD"])
+        @router.api_route("/{key:path}", methods=["GET", "HEAD"])
         async def get_chunk(
             key: str,
             ds: xr.Dataset = Depends(deps.dataset)
         ):
+            another_server_uri=ds.encoding["source"]+"/"+key
             return StreamingResponse(
-                stream_from_another_server(ds.encoding["source"]+"/kerchunk/"+key),
+                stream_from_another_server(another_server_uri),
                 media_type="application/octet-stream",
             )
             

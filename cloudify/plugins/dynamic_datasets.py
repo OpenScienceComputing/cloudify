@@ -12,7 +12,9 @@ class DynamicKerchunk(Plugin):
     @hookimpl
     def get_datasets(self):
         return [
-            str(path).split('_')[2]
+            self.url_split.join(
+                str(path.name).split(self.url_split)[2:]
+                )
             for path in pathlib.Path(self.source).iterdir()
         ]
 
@@ -22,7 +24,11 @@ class DynamicKerchunk(Plugin):
         if dataset_id not in inputs:
             raise HTTPException(status_code=404, detail=f"Could not find {dataset_id}")
         
-        input_urls = list(pathlib.Path(self.source).glob("*"+dataset_id+"*"))
+        input_urls = [
+                a
+                for a in pathlib.Path(self.source).iterdir()
+                if str(a.name).endswith(dataset_id)
+                ]
         if not input_urls:
             raise HTTPException(status_code=404, detail=f"Could not find {dataset_id}")
         elif len(input_urls) > 1:
@@ -40,18 +46,26 @@ class DynamicKerchunk(Plugin):
             except:
                 raise HTTPException(status_code=404, detail=f"Could not open {input_url}")
         else:
+            input_url = str(input_url.name)
+            port = input_url.split(self.url_split)[1]
+            protocol = "http://"
+            if not port.isdigit():
+                raise HTTPException(status_code=404, detail=f"Port needs to be integer {port}")
+            elif int(port) == 443:
+                protocol = "https://"
             input_url = (
-                "http://"+input_url.split(self.url_split)[0]+
-                ":"+input_url.split(self.url_split)[1]+
-                "/"+input_url.split(self.url_split)[2]+
-                "/kerchunk"
+                    protocol+input_url.split(self.url_split)[0]+":"+port+"/datasets/"+
+                    self.url_split.join(input_url.split(self.url_split)[2:])+
+                    "/kerchunk"
             )
+            print(input_url)
             try:
                 ds = xr.open_dataset(
                     input_url,
-                    chunks=None,
+                    chunks="auto",
                     engine="zarr"
                     )
+                ds = ds.drop_encoding()
                 ds.encoding["source"] = input_url
                 return ds
             except:
