@@ -30,12 +30,20 @@ With dask support, Data as a service (DaaS) is enabled. It has to be adjusted wi
 from cloudify.utils.daskhelper import get_dask_cluster
 import asyncio
 import os
+import xpublish as xp
+import xarray as xr
 
 if __name__ == "__main__":  # 
     import dask
     zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())
     os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address
+    dsdict={}
+    dsdict["test"] = xr.open_dataset(DATASET,chunks="auto")
+    collection = xp.Rest(dsdict)
+    collection.serve(host="0.0.0.0", port=9000)
 ```
+
+### Consumption
 
 All endpoints can be listed programmatically with python:
 
@@ -44,10 +52,6 @@ import requests
 fast=requests.get("https://eerie.cloud.dkrz.de/openapi.json").json()
 print(list(fast["paths"].keys()))
 ```
-
-### Consumption
-
-Here we describe all possible endpoints:
 
 #### Metadata info per xarray dataset
 
