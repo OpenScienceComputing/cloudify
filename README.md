@@ -26,12 +26,16 @@ With dask support, Data as a service (DaaS) is enabled. It has to be adjusted wi
 1. Create a dask cluster with sufficient resources. You can use the `get_dask_cluster` function from `cloudify.utils.daskhelper`.
 1. Set the environment variable ZARR_ADDRESS to the scheduler address. This will be used by the `/zarr`-API to calculated chunks.
 
+**Minimal Example**
+
 ```python
 from cloudify.utils.daskhelper import get_dask_cluster
 import asyncio
 import os
 import xpublish as xp
 import xarray as xr
+import nest_asyncio
+nest_asyncio.apply()
 
 if __name__ == "__main__":  # 
     import dask
