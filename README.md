@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-enabled-blue.svg)](https://hub.docker.com/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 [cloudify](https://gitlab.dkrz.de/data-infrastructure-services/cloudify) is a modular application designed to serve Earth System Model (ESM) simulation output as cloud-optimized datasets. Built on a customized version of the [xpublish](https://github.com/xpublish-community/xpublish) framework and extended with plugins, cloudify exposes data as [zarr](https://github.com/zarr-developers/zarr-python) endpoints through a RESTful API powered by [FastAPI](https://github.com/tiangolo/fastapi). By supporting multiple storage backends and virtual zarr datasets, cloudify enables efficient, scalable access to data from heterogeneous sources via a unified interface. This approach enhances the FAIRness (Findability, Accessibility, Interoperability, and Reusability) of ESM output and closely mimics the behavior of truly cloud-native datasets (Abernathey, 2021). 
 
