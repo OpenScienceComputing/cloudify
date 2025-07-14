@@ -22,7 +22,7 @@ We differentiate between data providers and data consumers.
 - [Python examples](scripts)
     - [Dynamic datasets](scripts/host_dynamic.py)
     - [Eerie-cloud like](scripts/cataloghost.py)
-- [Workshop](workshop)
+- [Tutorials](tutorials)
 
 #### With Dask to apply functions before hosting:
 
