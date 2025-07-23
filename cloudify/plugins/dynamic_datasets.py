@@ -47,6 +47,10 @@ class DynamicKerchunk(Plugin):
                 raise HTTPException(status_code=404, detail=f"Could not open {input_url}")
         else:
             input_url = str(input_url.name)
+            server = input_url.split(self.url_split)[0]
+            if not server.endswith(".dkrz.de") and not server.endswith(".dkrz.cloud"):
+                raise HTTPException(status_code=404, detail=f"Server needs to end with .dkrz.de or .dkrz.cloud {server}")
+
             port = input_url.split(self.url_split)[1]
             protocol = "http://"
             if not port.isdigit():
@@ -54,7 +58,7 @@ class DynamicKerchunk(Plugin):
             elif int(port) == 443:
                 protocol = "https://"
             input_url = (
-                    protocol+input_url.split(self.url_split)[0]+":"+port+"/datasets/"+
+                    protocol+server+":"+port+"/datasets/"+
                     self.url_split.join(input_url.split(self.url_split)[2:])+
                     "/kerchunk"
             )
