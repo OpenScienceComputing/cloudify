@@ -101,7 +101,7 @@ class KerchunkPlugin(Plugin):
             cache: cachey.Cache = Depends(deps.cache),
             #                use_cache=False
         ):
-            global gctrigger, mapper_dict
+            global gctrigger
             if "source" in dataset.encoding:
                 sp = dataset.encoding["source"]
                 fsmap = self.mapper_dict[sp]

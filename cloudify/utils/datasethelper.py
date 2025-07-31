@@ -344,6 +344,7 @@ def get_dataset_dict_from_intake(
     storage_chunk_patterns: list = None,
     allowed_ups: dict = None,
     mdupdate: bool = False,
+    l_dask: bool = True
 ):
     """
     Load datasets from intake catalog with configurable options.
@@ -393,11 +394,14 @@ def get_dataset_dict_from_intake(
 
         upnames = [a["name"] for a in ups]
         comb = {}
-        if storage_chunk_patterns:
-            if any(b in dsname for b in storage_chunk_patterns):
-                comb["chunks"] = {}
-        if not args.get("chunks") and not comb.get("chunks"):
-            comb["chunks"] = "auto"
+        if not l_dask:
+            comb["chunks"]=None
+        else:
+            if storage_chunk_patterns:
+                if any(b in dsname for b in storage_chunk_patterns):
+                    comb["chunks"] = {}
+            if not args.get("chunks") and not comb.get("chunks"):
+                comb["chunks"] = "auto"
         if drop_vars and not urlpath.endswith(".nc"):  # not possible for nc sources
             if type(drop_vars) == dict:
                 b = next((b for b in drop_vars.keys() if b in dsname), None)
@@ -414,6 +418,8 @@ def get_dataset_dict_from_intake(
             for combl in combination_list:
                 iakey = dictname + "." + "_".join([str(b) for b in combl.values()])
                 comb["chunks"] = {}
+                if not l_dask:
+                    comb["chunks"] = None
                 comb.update(combl)
                 try:
                     ds = cat[dsname](**comb).to_dask()
@@ -424,11 +430,12 @@ def get_dataset_dict_from_intake(
                         ds.encoding["source"] if ds.encoding["source"] else urlpath
                     )
                     ds.attrs["open_kwargs"] = copy(args)
-                    ds.attrs["total_no_of_chunks"] = sum(
-                        np.prod(var.data.numblocks)
-                        for var in ds.data_vars.values()
-                        if hasattr(var.data, "numblocks")
-                    )
+                    if l_dask:
+                        ds.attrs["total_no_of_chunks"] = sum(
+                            np.prod(var.data.numblocks)
+                            for var in ds.data_vars.values()
+                            if hasattr(var.data, "numblocks")
+                        )
                     del ds.attrs["open_kwargs"]["urlpath"]
                     ds.attrs["open_kwargs"].update(dict(engine="zarr"))
                     dsdict[iakey] = ds
@@ -450,7 +457,7 @@ def get_dataset_dict_from_intake(
 
 
 def reset_encoding_get_mapper(
-    mapper_dict: dict, dsid: str, ds: xr.Dataset, desc: dict = None
+    mapper_dict: dict, dsid: str, ds: xr.Dataset, desc: dict = None, l_dask: bool=True
 ) -> tuple[dict, xr.Dataset]:
     """
     Drop dataset encoding and get mapper for storage.
@@ -463,6 +470,7 @@ def reset_encoding_get_mapper(
         dsid (str): Dataset ID
         ds (xr.Dataset): Input dataset
         desc (dict, optional): Description dictionary containing storage options
+        l_dask (bool, optional): Switch for necessary settings when using dask
 
     Returns:
         tuple[dict, xr.Dataset]: Updated mapper dictionary and dataset
@@ -479,7 +487,8 @@ def reset_encoding_get_mapper(
                 updesc = updesc[0]
             sp = updesc
     
-    ds = ds.drop_encoding()
+    if l_dask:
+        ds = ds.drop_encoding()
     
     if sp:
         use_options = copy(STORAGE_OPTIONS)
