@@ -83,7 +83,7 @@ Default xpublish dataset plugin endpoints:
 import xarray as xr
 xr.open_dataset(
     f"{SERVER_URL}/datasets/{dataset_id}/kerchunk",
-    engine="kerchunk",
+    engine="zarr",
     chunks="auto"
 ) 
 ```
