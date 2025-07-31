@@ -2,19 +2,29 @@ from typing import Dict, Any, Optional
 from cloudify.utils.datasethelper import (
     reset_encoding_get_mapper,
     adapt_for_zarr_plugin_and_stac,
-    set_compression
+    set_compression,
+    get_dataset_dict_from_intake,
+    gribscan_to_float,
+    apply_lossy_compression
 )
 import xarray as xr
 import intake
 import yaml
 import fsspec
+from copy import deepcopy as copy
+from cloudify.utils.statistics import (
+    build_summary_df,
+    summarize_overall,
+    print_summary
+)
 
 
 def refine_nextgems(
     mapper_dict: Dict[str, Any],
     iakey: str,
     ds: xr.Dataset,
-    desc: Dict[str, Any]
+    desc: Dict[str, Any],
+    l_dask: bool = True
 ) -> tuple[Dict[str, Any], xr.Dataset]:
     """
     Refine NEXTGEMS dataset with metadata and compression settings.
@@ -34,7 +44,7 @@ def refine_nextgems(
             ds.attrs[mdk] = mdv
 
     # Prepare dataset for storage
-    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc)
+    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc, l_dask=l_dask)
     ds = adapt_for_zarr_plugin_and_stac(iakey, ds)
     ds = set_compression(ds)
 
@@ -139,6 +149,7 @@ def add_nextgems(
         "IFS.IFS_2.8-FESOM_5-production-deep-off-parq",
     ]
 
+    l_dask=False
     try:
         ngccat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -151,12 +162,13 @@ def add_nextgems(
         print(f"Warning: Failed to load catalogs: {str(e)}")
         ngc4_md = None
 
-    gr_025 = (
-        ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"]
-        .to_dask()
-        .reset_coords()[["lat", "lon"]]
-        .load()
-    )
+    if l_dask:
+        gr_025 = (
+            ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"]
+            .to_dask()
+            .reset_coords()[["lat", "lon"]]
+            .load()
+        )
 
     # Build list of all datasets to process
     all_ds = copy(DS_ADD)
@@ -173,6 +185,7 @@ def add_nextgems(
         prefix="nextgems.",
         storage_chunk_patterns=["2048"],
         drop_vars={"25deg": ["lat", "lon"]},
+        l_dask=False
     )
 
     # Process each dataset
@@ -188,19 +201,26 @@ def add_nextgems(
         if "ngc4008" in dsn or "IFS_9-FESOM_5-production" in dsn:
             descdict[iakey]["metadata"] = ngc4_md
 
+    df=build_summary_df(localdsdict)
+    df.to_csv("nextgems_datasets.csv")
+    su=summarize_overall(df)
+    print(print_summary(su))
+
     for ia, ds in localdsdict.items():
         # for ia in all_ds:
         print(ia)
-        print("gribscan to float")
-        ds = gribscan_to_float(ds)
-        mapper_dict, ds = refine_nextgems(mapper_dict, ia, ds, descdict[ia])
-        if "25deg" in ia:
-            ds.coords["lat"] = gr_025["lat"]
-            ds.coords["lon"] = gr_025["lon"]
-        print("try to set crs")
-        if "crs" in ds.variables:
-            if len(str(ds["crs"].attrs.get("healpix_nside", "No"))) >= 4:
-                ds = apply_lossy_compression(ds)
+        if l_dask:
+            print("gribscan to float")
+            ds = gribscan_to_float(ds)
+        mapper_dict, ds = refine_nextgems(mapper_dict, ia, ds, descdict[ia],l_dask=l_dask)
+        if l_dask:
+            if "25deg" in ia :
+                ds.coords["lat"] = gr_025["lat"]
+                ds.coords["lon"] = gr_025["lon"]
+            print("try to set crs")
+            if "crs" in ds.variables:
+                if len(str(ds["crs"].attrs.get("healpix_nside", "No"))) >= 4:
+                    ds = apply_lossy_compression(ds)
         elif "healpix" in ia:
             ds = add_healpix(ia, ds)
         dsdict[ia] = ds

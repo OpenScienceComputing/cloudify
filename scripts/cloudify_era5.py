@@ -8,6 +8,11 @@ from cloudify.utils.datasethelper import (
     set_compression
 )
 import xarray as xr
+from cloudify.utils.statistics import (
+    build_summary_df,
+    summarize_overall,
+    print_summary
+)
 
 
 def add_era5(
@@ -32,20 +37,21 @@ def add_era5(
     """
     # ERA5 catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new.yaml"
-    
+    l_dask=False
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:
         raise ValueError(f"Failed to open ERA5 catalog: {str(e)}")
 
     # Load base coordinates
-    dsone = (
-        cat["surface_analysis_monthly"](chunks=None)
-        .to_dask()
-        .reset_coords()[["lat", "lon"]]
-    )
-    print(dsone)
-    dsone = dsone.load()
+    if l_dask:
+        dsone = (
+            cat["surface_analysis_monthly"](chunks=None)
+            .to_dask()
+            .reset_coords()[["lat", "lon"]]
+        )
+        print(dsone)
+        dsone = dsone.load()
     dsnames = []
     for mdsid in list(cat):
         # Skip hourly datasets that are not surface data
@@ -53,28 +59,36 @@ def add_era5(
             continue
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)
-    rawdsdict = get_dataset_dict_from_intake(cat, dsnames, drop_vars=["lat", "lon"])
+    rawdsdict = get_dataset_dict_from_intake(cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask)
+    df=build_summary_df(rawdsdict)
+    df.to_csv("era5_datasets.csv")
+    su=summarize_overall(df)
+    print(print_summary(su))
+    
+
     for dsname in rawdsdict.keys():
         ds = rawdsdict[dsname]
         
         # Set coordinates
-        for l in ["lat", "lon"]:
-            ds.coords[l] = dsone[l].copy()
+        if l_dask:
+            for l in ["lat", "lon"]:
+                ds.coords[l] = dsone[l].copy()
 
         # Prepare dataset for storage
         mapper_dict, ds = reset_encoding_get_mapper(
-            mapper_dict, dsname, ds, desc=cat[dsname].describe()
+            mapper_dict, dsname, ds, desc=cat[dsname].describe(), l_dask=l_dask
         )
 
         # Process dataset
-        ds = gribscan_to_float(ds)
+        if l_dask:
+            ds = gribscan_to_float(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
         ds = set_compression(ds)
 
         # Add to dictionary with ERA5 prefix
         dsdict[f"era5-dkrz.{dsname}"] = ds
 
-
     # Clean up
     del rawdsdict
+
     return mapper_dict, dsdict

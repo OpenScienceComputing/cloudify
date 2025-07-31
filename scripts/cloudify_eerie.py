@@ -11,13 +11,18 @@ from cloudify.utils.datasethelper import (
     gribscan_to_float
 )
 import xarray as xr
+from cloudify.utils.statistics import (
+    build_summary_df,
+    summarize_overall,
+    print_summary
+)
 
 
 def get_dsone(
     cat: intake.Catalog,
     model: str,
     realm: str,
-    coords: List[str]
+    coords: List[str],
 ) -> Optional[xr.Dataset]:
     """
     Get coordinate dataset for a specific model and realm.
@@ -68,7 +73,7 @@ def add_eerie(
     Raises:
         ValueError: If required source catalog is not accessible
     """
-    l_dask=True
+    l_dask=False
     # EERIE catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
     
@@ -78,38 +83,39 @@ def add_eerie(
         raise ValueError(f"Failed to open EERIE catalog: {str(e)}")
 
     # Define model coordinate datasets
-    dsonedict = {
-        "icon_atmos": get_dsone(
-            cat,
-            "icon-esm-er.hist-1950.v20240618",
-            "atmos",
-            ["lat", "lon", "cell_sea_land_mask"],
-        ),
-        "icon_ocean": get_dsone(
-            cat,
-            "icon-esm-er.hist-1950.v20240618",
-            "ocean",
-            ["lat", "lon", "cell_sea_land_mask"],
-        ),
-        "icon_land": get_dsone(
-            cat,
-            "icon-esm-er.hist-1950.v20240618",
-            "atmos",
-            ["lat", "lon", "cell_sea_land_mask"],
-        ),
-        "ifs-fesom_atmos": get_dsone(
-            cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
-        ),
-        "ifs-fesom_ocean": get_dsone(
-            cat,
-            "ifs-fesom2-sr.eerie-spinup-1950.v20240304",
-            "ocean",
-            ["lat", "lon", "coast"],
-        ),
-        "ifs-amip-tco1279_atmos": get_dsone(
-            cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
-        ),
-    }
+    if l_dask:    
+        dsonedict = {
+            "icon_atmos": get_dsone(
+                cat,
+                "icon-esm-er.hist-1950.v20240618",
+                "atmos",
+                ["lat", "lon", "cell_sea_land_mask"],
+            ),
+            "icon_ocean": get_dsone(
+                cat,
+                "icon-esm-er.hist-1950.v20240618",
+                "ocean",
+                ["lat", "lon", "cell_sea_land_mask"],
+            ),
+            "icon_land": get_dsone(
+                cat,
+                "icon-esm-er.hist-1950.v20240618",
+                "atmos",
+                ["lat", "lon", "cell_sea_land_mask"],
+            ),
+            "ifs-fesom_atmos": get_dsone(
+                cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
+            ),
+            "ifs-fesom_ocean": get_dsone(
+                cat,
+                "ifs-fesom2-sr.eerie-spinup-1950.v20240304",
+                "ocean",
+                ["lat", "lon", "coast"],
+            ),
+            "ifs-amip-tco1279_atmos": get_dsone(
+                cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
+            ),
+        }
 
     # Find datasets to process
     hostids = []
@@ -118,7 +124,7 @@ def add_eerie(
             hostids += [
                     a
                     for a in find_data_sources(cat["model-output"][source])
-                    if not any(b in a for b in ["v2023", "3d_grid"])
+                    if not any(b in a for b in ["v2023", "3d_grid"]) #and "icon-esm" in a and "hist-1950" in a
             ]
 
     localdsdict = get_dataset_dict_from_intake(
@@ -130,35 +136,41 @@ def add_eerie(
             native=["lat", "lon", "cell_sea_land_mask"],
             healpix=["lat", "lon"]
         ),
+        l_dask=l_dask
     )
+    df=build_summary_df(localdsdict)
+    df.to_csv("eerie_datasets.csv")
+    su=summarize_overall(df)
+    print(print_summary(su))
 
     for dsid, ds in localdsdict.items():
         ds.attrs["_catalog_id"] = dsid
-        if "native" in dsid:
-            dsone = dsonedict.get(
-                next(
-                    (
-                        k
-                        for k in dsonedict.keys()
-                        if all(b in dsid for b in k.split("_"))
-                    ), "nothing_found"
-                ),
-                "nothing_found"
-            )
-        if dsone and not "elem" in dsid:
-            try:
-                for dv in dsone.variables.keys():
-                    ds.coords[dv] = dsone[dv]
-            except:
-                print(f"Couldnt set coordinates for {dsid}")
-        else:
-            print(f"Couldnt find coords for {dsid}")
+        if l_dask:
+            if "native" in dsid:
+                dsone = dsonedict.get(
+                    next(
+                        (
+                            k
+                            for k in dsonedict.keys()
+                            if all(b in dsid for b in k.split("_"))
+                        ), "nothing_found"
+                    ),
+                    "nothing_found"
+                )
+            if dsone and not "elem" in dsid:
+                try:
+                    for dv in dsone.variables.keys():
+                        ds.coords[dv] = dsone[dv]
+                except:
+                    print(f"Couldnt set coordinates for {dsid}")
+            else:
+                print(f"Couldnt find coords for {dsid}")
         if "d" in ds.data_vars:
             ds = ds.rename(d="testd")
 
         if "fesom" in dsid:  #            and "ocean" in dsid and "native" in dsid:
-            if not l_dask:
-                continue
+            #if not l_dask:
+            #    continue
             # ds = chunk_and_prepare_fesom(ds)
             if "heightAboveGround" in ds.variables:
                 ds = ds.drop("heightAboveGround")
@@ -168,7 +180,8 @@ def add_eerie(
             if droplist:
                 ds = ds.drop(droplist)
         ds = set_or_delete_coords(ds, dsid)
-        ds = gribscan_to_float(ds)
+        if l_dask:
+            ds = gribscan_to_float(ds)
 
         # lossy has to come first!
         if not "grid" in dsid:
@@ -178,6 +191,7 @@ def add_eerie(
             mapper_dict,
             dsid,
             ds,  # desc=desc
+            l_dask=l_dask
         )
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
         ds = set_compression(ds)

@@ -7,6 +7,11 @@ from cloudify.utils.datasethelper import (
     adapt_for_zarr_plugin_and_stac,
     set_compression
 )
+from cloudify.utils.statistics import (
+    build_summary_df,
+    summarize_overall,
+    print_summary
+)
 
 # Configuration constants
 TRUNK = "/work/mh0492/m301067/orcestra/healpix/"
@@ -45,6 +50,7 @@ def add_orcestra(
     Raises:
         ValueError: If required trunk directory or datasets are not accessible
     """
+    l_dask=False
     # Find all initial date directories
     init_dates_trunks = [
         a
@@ -53,6 +59,7 @@ def add_orcestra(
         if not "-rerun" in a
     ]
     dsone = None
+    local_dsdict={}
     for ini in tqdm(init_dates_trunks):
         init_date = ini.split("/")[-1]
         for dim in DIMS:
@@ -60,8 +67,11 @@ def add_orcestra(
             dsname = f'{conf_dict["project_id"].lower()}.{conf_dict["source_id"]}.s2024-{init_date[0:2]}-{init_date[2:4]}_{dim}_PT10M_12'
             if dim == "3d":
                 dsname = dsname.replace("PT10M", "PT4H")
+            chunks="auto"
+            if not l_dask:
+                chunks=None
             ds = xr.open_dataset(
-                dstrunk, engine="zarr", consolidated=True, chunks="auto"
+                dstrunk, engine="zarr", consolidated=True, chunks=chunks
             )
             if not dsone:
                 dsone = ds.copy()
@@ -69,8 +79,16 @@ def add_orcestra(
             ds.attrs.update(conf_dict)
             print(ds.encoding["source"])
             print(dsname)
-            mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds)
+            mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds, l_dask=l_dask)
             ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
             ds = set_compression(ds)
             dsdict[dsname] = ds
+            local_dsdict[dsname] = ds
+
+    df=build_summary_df(local_dsdict)
+    df.to_csv("orcestra_datasets.csv")
+    su=summarize_overall(df)
+    print(print_summary(su))
+    del local_dsdict
+            
     return mapper_dict, dsdict
