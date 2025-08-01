@@ -16,7 +16,8 @@ import xarray as xr
 
 def add_dyamond(
     mapper_dict: Dict[str, Any],
-    dsdict: Dict[str, xr.Dataset]
+    dsdict: Dict[str, xr.Dataset],
+    l_dask: bool = True
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add DYAMOND datasets to the mapper dictionary and dataset dictionary.
@@ -36,7 +37,6 @@ def add_dyamond(
     """
     # DYAMOND catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues_hk25/catalog.yaml"
-    l_dask=False
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:

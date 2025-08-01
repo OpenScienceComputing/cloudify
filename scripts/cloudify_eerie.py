@@ -55,7 +55,8 @@ def get_dsone(
 
 def add_eerie(
     mapper_dict: Dict[str, Any],
-    dsdict: Dict[str, xr.Dataset]
+    dsdict: Dict[str, xr.Dataset],
+    l_dask: bool = True,
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add EERIE datasets to the mapper dictionary and dataset dictionary.
@@ -73,7 +74,6 @@ def add_eerie(
     Raises:
         ValueError: If required source catalog is not accessible
     """
-    l_dask=False
     # EERIE catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
     

@@ -20,6 +20,7 @@ import intake
 import xpublish as xp
 import fastapi
 import uvicorn
+#from starlette.middleware.cors import CORSMiddleware
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -27,7 +28,7 @@ os.environ["FORWARDED_ALLOW_IPS"] = "127.0.0.1"
 
 from intake.config import conf
 conf["cache_disabled"] = True
-L_DASK = False
+L_DASK = True
 # CATALOG_FILE="/work/bm1344/DKRZ/intake/dkrz_eerie_esm.yaml"
 # ADDRESS="tcp://127.0.0.1:42577"
 
@@ -59,37 +60,37 @@ dsdict = {}
 async def start_all_datasets():
     global collection, L_DASK, kp, mapper_dict, dsdict
     await asyncio.sleep(0)    
-    L_NEXTGEMS = True #True
-    L_ORCESTRA = True #True
-    L_COSMOREA = True #True
+    L_NEXTGEMS = False #True
+    L_ORCESTRA = True #True #True
+    L_COSMOREA = False #True #True
     L_ERA5 = True #True
-    L_DYAMOND = True #True
-    L_EERIE = True #True
+    L_DYAMOND = True #True #True
+    L_EERIE = False # True #True
     
     if L_COSMOREA:
-        mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict, l_dask=L_DASK)
         print(f"After COSMO: {len(dsdict)}")
         print(f"After COSMO: {len(mapper_dict)}")        
     if L_NEXTGEMS:
-        mapper_dict, dsdict = add_nextgems(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_nextgems(mapper_dict, dsdict, l_dask=L_DASK)
         print(f"After NEXTGEMS: {len(dsdict)}")        
         print(f"After NEXTGEMS: {len(mapper_dict)}")        
     if L_ORCESTRA:
-        mapper_dict, dsdict = add_orcestra(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_orcestra(mapper_dict, dsdict, l_dask=False)
         print(f"After ORCESTRA: {len(dsdict)}")
         print(f"After ORCESTRA: {len(mapper_dict)}")        
     if L_ERA5:
-        mapper_dict, dsdict = add_era5(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_era5(mapper_dict, dsdict, l_dask=L_DASK)
         len_dask=len(dsdict)
         len_m=len(mapper_dict)
         print(f"After ERA: {len_dask}")
         print(f"After ERA: {len_m}")       
     if L_DYAMOND:
-        mapper_dict, dsdict = add_dyamond(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_dyamond(mapper_dict, dsdict, l_dask=False)
         print(f"After DYAMOND: {len(dsdict)}")
         print(f"After DYAMOND: {len(mapper_dict)}")        
     if L_EERIE:
-        mapper_dict, dsdict = add_eerie(mapper_dict, dsdict)
+        mapper_dict, dsdict = add_eerie(mapper_dict, dsdict, l_dask=L_DASK)
         len_dask=len(dsdict)
         len_m=len(mapper_dict)
         print(f"After L_EERIE: {len_dask}")
@@ -115,7 +116,8 @@ async def start_all_datasets():
     #collection.serve(host="0.0.0.0", port=9000, workers=2)
 
 app.add_event_handler("startup", start_all_datasets)
-    
+
+
 if __name__ == "__main__":  # This avoids infinite subprocess creation
     if L_DASK:
         import dask
@@ -138,4 +140,4 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         # client=Client(cluster)
         os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address
 
-    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=1)
+    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=4)

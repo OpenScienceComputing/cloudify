@@ -17,7 +17,8 @@ from cloudify.utils.statistics import (
 
 def add_era5(
     mapper_dict: Dict[str, Any],
-    dsdict: Dict[str, xr.Dataset]
+    dsdict: Dict[str, xr.Dataset],
+    l_dask: bool =True
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add ERA5 datasets to the mapper dictionary and dataset dictionary.
@@ -37,7 +38,6 @@ def add_era5(
     """
     # ERA5 catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new.yaml"
-    l_dask=False
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:

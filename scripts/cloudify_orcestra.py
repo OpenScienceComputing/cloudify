@@ -32,7 +32,8 @@ conf_dict = dict(
 
 def add_orcestra(
     mapper_dict: Dict[str, Any],
-    dsdict: Dict[str, xr.Dataset]
+    dsdict: Dict[str, xr.Dataset],
+    l_dask: bool = True
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add ORCESTRA datasets to the mapper dictionary and dataset dictionary.
@@ -50,7 +51,6 @@ def add_orcestra(
     Raises:
         ValueError: If required trunk directory or datasets are not accessible
     """
-    l_dask=False
     # Find all initial date directories
     init_dates_trunks = [
         a

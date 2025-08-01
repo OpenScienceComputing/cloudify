@@ -11,6 +11,7 @@ from cloudify.utils.statistics import (
 def add_cosmorea(
     mapper_dict: Dict[str, Any],
     dsdict: Dict[str, xr.Dataset],
+    l_dask: bool = True
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add COSMO Reanalysis datasets to the mapper dictionary and dataset dictionary.
@@ -31,7 +32,6 @@ def add_cosmorea(
     """
     # COSMO Reanalysis catalog URL
     source_catalog = "https://swift.dkrz.de/v1/dkrz_4236b71e-04df-456b-8a32-5d66641510f2/catalogs/cosmo-rea/main.yaml"
-    l_dask = False
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:

@@ -117,7 +117,8 @@ def add_healpix(
 
 def add_nextgems(
     mapper_dict: Dict[str, Any],
-    dsdict: Dict[str, xr.Dataset]
+    dsdict: Dict[str, xr.Dataset],
+    l_dask: bool = True
 ) -> tuple[Dict[str, Any], Dict[str, xr.Dataset]]:
     """
     Add NEXTGEMS datasets to the mapper dictionary and dataset dictionary.
@@ -149,7 +150,6 @@ def add_nextgems(
         "IFS.IFS_2.8-FESOM_5-production-deep-off-parq",
     ]
 
-    l_dask=False
     try:
         ngccat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -185,7 +185,7 @@ def add_nextgems(
         prefix="nextgems.",
         storage_chunk_patterns=["2048"],
         drop_vars={"25deg": ["lat", "lon"]},
-        l_dask=False
+        l_dask=l_dask
     )
 
     # Process each dataset
