@@ -164,10 +164,10 @@ def add_nextgems(
 
     if l_dask:
         gr_025 = (
-            ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"]
+            ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"](chunks=None)
             .to_dask()
             .reset_coords()[["lat", "lon"]]
-            .load()
+            .chunk()
         )
 
     # Build list of all datasets to process
@@ -179,7 +179,7 @@ def add_nextgems(
     # Get dataset descriptions
     descdict = {}
 
-    localdsdict = get_dataset_dict_from_intake(
+    tempmapdict,localdsdict = get_dataset_dict_from_intake(
         ngccat,
         all_ds,
         prefix="nextgems.",
@@ -202,7 +202,7 @@ def add_nextgems(
             descdict[iakey]["metadata"] = ngc4_md
 
     df=build_summary_df(localdsdict)
-    df.to_csv("nextgems_datasets.csv")
+    df.to_csv("/tmp/nextgems_datasets.csv")
     su=summarize_overall(df)
     print(print_summary(su))
 

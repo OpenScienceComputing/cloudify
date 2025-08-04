@@ -51,7 +51,7 @@ def add_era5(
             .reset_coords()[["lat", "lon"]]
         )
         print(dsone)
-        dsone = dsone.load()
+        dsone = dsone.chunk()
     dsnames = []
     for mdsid in list(cat):
         # Skip hourly datasets that are not surface data
@@ -59,9 +59,9 @@ def add_era5(
             continue
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)
-    rawdsdict = get_dataset_dict_from_intake(cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask)
+    tempdict,rawdsdict = get_dataset_dict_from_intake(cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask)
     df=build_summary_df(rawdsdict)
-    df.to_csv("era5_datasets.csv")
+    df.to_csv("/tmp/era5_datasets.csv")
     su=summarize_overall(df)
     print(print_summary(su))
     

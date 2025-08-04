@@ -46,7 +46,7 @@ def add_dyamond(
     DS_ADD = ["EU.icon_d3hp003"]
 
     # Load datasets with specific configurations
-    localdsdict = get_dataset_dict_from_intake(
+    tempdict,localdsdict = get_dataset_dict_from_intake(
         cat,
         DS_ADD,
         prefix="dyamond",
@@ -56,7 +56,7 @@ def add_dyamond(
         l_dask=l_dask
     )
     df=build_summary_df(localdsdict)
-    df.to_csv("dyamond_datasets.csv")
+    df.to_csv("/tmp/dyamond_datasets.csv")
     su=summarize_overall(df)
     print(print_summary(su))
 

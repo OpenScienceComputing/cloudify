@@ -20,7 +20,7 @@ import intake
 import xpublish as xp
 import fastapi
 import uvicorn
-#from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -54,18 +54,25 @@ collection.register_plugin(kp)
 collection.register_plugin(Stac())
 collection.register_plugin(Stats())
 app = collection.app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 mapper_dict = {}    
 dsdict = {}
 
 async def start_all_datasets():
     global collection, L_DASK, kp, mapper_dict, dsdict
     await asyncio.sleep(0)    
-    L_NEXTGEMS = False #True
+    L_NEXTGEMS = True #True
     L_ORCESTRA = True #True #True
-    L_COSMOREA = False #True #True
+    L_COSMOREA = True #True #True
     L_ERA5 = True #True
     L_DYAMOND = True #True #True
-    L_EERIE = False # True #True
+    L_EERIE = True # True #True
     
     if L_COSMOREA:
         mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict, l_dask=L_DASK)
@@ -140,4 +147,4 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         # client=Client(cluster)
         os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address
 
-    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=4)
+    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=2)

@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from cloudify.utils.datasethelper import reset_encoding_get_mapper, adapt_for_zarr_plugin_and_stac
+from cloudify.utils.datasethelper import reset_encoding_get_mapper, adapt_for_zarr_plugin_and_stac, open_zarr_and_mapper
 import intake
 import xarray as xr
 from cloudify.utils.statistics import (
@@ -69,25 +69,32 @@ def add_cosmorea(
         chunks="auto"
         if not l_dask:
             chunks=None
-        ds = cat[dsname](drop_variables=drop_vars,chunks=chunks).to_dask()
+        desc = cat[dsname].describe()
+        urlpath= cat[dsname].urlpath
+        desc["args"]["storage_options"]["remote_protocol"] = "file"
+        dsid = "cosmo-rea-" + dsname            
+        ds, mapper = open_zarr_and_mapper(
+                urlpath,
+                storage_options=desc["args"]["storage_options"],
+                drop_variables=drop_vars,
+                chunks=chunks,
+                consolidated=False
+                )
         for onedim in onedims:
             if onedim in ds.variables and "time" in ds[onedim].dims:
                 ds[onedim] = ds.reset_coords()[onedim].isel(time=0).load()
         if l_dask:
             for l in ["latitude", "longitude"]:
                 ds.coords[l] = dsone[l]
-        desc = cat[dsname].describe()
-        desc["args"]["storage_options"]["remote_protocol"] = "file"
-        dsid = "cosmo-rea-" + dsname
-        mapper_dict, ds = reset_encoding_get_mapper(
-            mapper_dict, dsid, ds, desc=desc, l_dask=l_dask
-        )
+        ds = ds.drop_encoding()
+        ds.encoding["source"]=urlpath
+        mapper_dict[urlpath]=mapper        
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
         dsdict[dsid] = ds
         local_dsdict[dsid] = ds
         
     df=build_summary_df(local_dsdict)
-    df.to_csv("cosmo_datasets.csv")
+    df.to_csv("/tmp/cosmo_datasets.csv")
     su=summarize_overall(df)
     print(print_summary(su))
     del local_dsdict
