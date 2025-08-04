@@ -112,35 +112,41 @@ class ZarrPlugin(Plugin):
                 logger.debug('var is %s', var)
                 logger.debug('chunk is %s', chunk)
 
-                cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, '') + '/' + f'{var}/{chunk}'
-                response = cache.get(cache_key)
+                #cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, '') + '/' + f'{var}/{chunk}'
+                #response = cache.get(cache_key)
 
-                if response is None:
-                    with CostTimer() as ct:
-                        arr_meta = zmetadata['metadata'][f'{var}/{array_meta_key}']
-                        da = zvariables[var].data
+                #if response is None:
+                    #with CostTimer() as ct:
+                arr_meta = zmetadata['metadata'][f'{var}/{array_meta_key}']
+                da = zvariables[var].data
 
-                        data_chunk = get_data_chunk(
-                            da,
-                            chunk,
-                            out_shape=arr_meta['chunks'],
+                data_chunk = get_data_chunk(
+                        da,
+                        chunk,
+                        out_shape=arr_meta['chunks'],
                         )
-
-                        echunk = encode_chunk(
-                            data_chunk.tobytes(),
-                            filters=arr_meta['filters'],
-                            compressor=arr_meta['compressor'],
+                
+                echunk = encode_chunk(
+                        data_chunk.tobytes(),
+                        filters=arr_meta['filters'],
+                        compressor=arr_meta['compressor'],
                         )
-
-                        response = Response(
-                            echunk,
-                            media_type='application/octet-stream',
+                
+                response = Response(
+                        echunk,
+                        media_type='application/octet-stream',
                         )
-                    response.headers["Cache-control"] = "max-age=604800"
-                    response.headers["X-EERIE-Request-Id"] = "True"
-                    response.headers["Last-Modified"] = todaystring
-
-                    cache.put(cache_key, response, ct.time, len(echunk))
+                
+                response.headers["Cache-control"] = "max-age=3600"
+                response.headers["X-EERIE-Request-Id"] = "True"
+                response.headers["Last-Modified"] = datetime.today().strftime(
+                        "%a, %d %b %Y 00:00:00 GMT"
+                        )
+                response.headers["Access-Control-Allow-Origin"] = "*"
+                response.headers["Access-Control-Allow-Methods"] = "POST,GET,HEAD"
+                response.headers["Access-Control-Allow-Headers"] = "*"                        
+                
+                    #cache.put(cache_key, response, ct.time, len(echunk))
 
                 return response
 

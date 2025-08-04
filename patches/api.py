@@ -6,6 +6,7 @@ import xarray as xr
 from fastapi import APIRouter
 from fastapi.openapi.utils import get_openapi
 from starlette.responses import JSONResponse as StarletteJSONResponse  # type: ignore
+from datetime import datetime
 
 DATASET_ID_ATTR_KEY = '_xpublish_id'
 
@@ -135,8 +136,14 @@ class JSONResponse(StarletteJSONResponse):
         }
         self._render_kwargs.update(kwargs.pop('render_kwargs', {}))
         super().__init__(*args, **kwargs)
-        self.headers["Cache-control"] = "max-age=604800"
+        self.headers["Cache-control"] = "max-age=3600"
         self.headers["X-EERIE-Request-Id"] = "True"
+        self.headers["Last-Modified"] = datetime.today().strftime(
+            "%a, %d %b %Y 00:00:00 GMT"
+        )
+        self.headers["Access-Control-Allow-Origin"] = "*"
+        self.headers["Access-Control-Allow-Methods"] = "POST,GET,HEAD"
+        self.headers["Access-Control-Allow-Headers"] = "*"        
 
     def render(self, content: Any) -> bytes:
         return json.dumps(content, **self._render_kwargs).encode('utf-8')
