@@ -8,6 +8,8 @@ import xarray as xr
 from datetime import datetime
 from copy import deepcopy as copy
 import fastapi
+import numcodecs
+rounding = numcodecs.BitRound(keepbits=10)
 
 STORAGE_OPTIONS = dict(
     #        remote_protocol="file",
@@ -44,6 +46,9 @@ def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Last-Modified"] = datetime.today().strftime(
         "%a, %d %b %Y 00:00:00 GMT"
     )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST,GET,HEAD"
+    response.headers["Access-Control-Allow-Headers"] = "*"
 
 
 def split_ds(ds: xr.Dataset) -> list[xr.Dataset]:
@@ -100,6 +105,21 @@ def split_ds(ds: xr.Dataset) -> list[xr.Dataset]:
     
     return subdss
 
+def open_zarr_and_mapper(uri, storage_options=None,**kwargs):    
+    use_options = copy(STORAGE_OPTIONS)
+    if storage_options:
+        use_options.update(storage_options)
+    if not use_options.get("remote_protocol") and uri.startswith("reference"):
+        use_options["remote_protocol"] = "file"
+        print(use_options)
+    mapper = fsspec.get_mapper(uri, **use_options)
+    ds = xr.open_dataset(
+            mapper,
+            engine="zarr",
+            **kwargs
+            )
+
+    return ds,mapper
 
 def chunk_and_prepare_fesom(ds: xr.Dataset) -> xr.Dataset:
     """
@@ -210,7 +230,7 @@ def lossy_compress_chunk(partds) :
     """
     Apply lossy compression to dataset using BitRound.
 
-    This function applies BitRound compression with 12 keepbits to the input data array,
+    This function applies BitRound compression with 10 keepbits to the input data array,
     which reduces precision while maintaining reasonable accuracy.
 
     Args:
@@ -220,8 +240,8 @@ def lossy_compress_chunk(partds) :
         np.Array: Compressed dataset
 
     """
-    import numcodecs
-    rounding = numcodecs.BitRound(keepbits=12)
+#    import numcodecs
+#    rounding = numcodecs.BitRound(keepbits=10)
     return rounding.decode(rounding.encode(partds))
 
 
@@ -371,6 +391,7 @@ def get_dataset_dict_from_intake(
         ValueError: If dataset loading fails
     """
     dsdict = {}
+    mapper_dict = {}
     for dsname in dsnames:
         print(dsname)
         desc = cat[dsname].describe()
@@ -382,7 +403,7 @@ def get_dataset_dict_from_intake(
                         ups[idx]["allowed"] = upvals
         md = desc.get("metadata")
         args = desc.get("args")
-        urlpath = args.get("urlpath")
+        urlpath = cat[dsname].urlpath #args.get("urlpath")
         if type(urlpath) == list:
             urlpath = urlpath[0]
         if whitelist_paths:
@@ -400,7 +421,9 @@ def get_dataset_dict_from_intake(
             if storage_chunk_patterns:
                 if any(b in dsname for b in storage_chunk_patterns):
                     comb["chunks"] = {}
-            if not args.get("chunks") and not comb.get("chunks"):
+            elif args.get("chunks"):
+                comb["chunks"] = args.get("chunks")
+            if comb.get("chunks","notset") == "notset":
                 comb["chunks"] = "auto"
         if drop_vars and not urlpath.endswith(".nc"):  # not possible for nc sources
             if type(drop_vars) == dict:
@@ -417,12 +440,20 @@ def get_dataset_dict_from_intake(
             combination_list = get_combination_list(ups)
             for combl in combination_list:
                 iakey = dictname + "." + "_".join([str(b) for b in combl.values()])
-                comb["chunks"] = {}
-                if not l_dask:
-                    comb["chunks"] = None
-                comb.update(combl)
+                if l_dask:
+                    comb["chunks"] = {}
+#                comb.update(combl)
+                urlpath=cat[dsname](**combl).urlpath
+                if urlpath.startswith("reference"):
+                    comb["consolidated"]=False
+                elif args.get("consolidated"):
+                    comb["consolidated"]=args.get("consolidated")                
                 try:
-                    ds = cat[dsname](**comb).to_dask()
+                    #ds = cat[dsname](**comb).to_dask()
+                    ds,mapper = open_zarr_and_mapper(urlpath, **comb)
+                    ds.encoding["source"]=urlpath
+                    dsdict[dictname] = ds
+                    mapper_dict[urlpath] = mapper
                     if mdupdate:
                         ds.attrs.update(md)
                     # chunks="auto",storage_options=storage_options).to_dask()
@@ -445,15 +476,22 @@ def get_dataset_dict_from_intake(
                     continue
         else:
             try:
-                ds = cat[dsname](**comb).to_dask()
+                if urlpath.startswith("reference"):
+                    comb["consolidated"]=False
+                elif args.get("consolidated"):
+                    comb["consolidated"]=args.get("consolidated")
+                ds,mapper = open_zarr_and_mapper(urlpath, **comb)                
+#                ds = cat[dsname](**comb).to_dask()
                 if mdupdate:
                     ds.attrs.update(md)
+                ds.encoding["source"]=urlpath
                 dsdict[dictname] = ds
+                mapper_dict[urlpath] = mapper
                 # chunks="auto",storage_options=storage_options).to_dask()
             except:
                 print("Could not open " + dsname)
                 continue
-    return dsdict
+    return mapper_dict, dsdict
 
 
 def reset_encoding_get_mapper(
