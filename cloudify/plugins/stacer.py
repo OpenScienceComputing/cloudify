@@ -27,7 +27,7 @@ GRIDLOOK_HP = "https://gridlook.pages.dev/"
 JUPYTERLITE = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/jupyterlite/index.html"
 hostname = socket.gethostname()
 HOST = f"https://{hostname}"
-port = 9000
+port = None
 if port:
     HOST = f"http://{hostname}:{port}"
 HOSTURL = f"{HOST}/datasets"
@@ -358,7 +358,7 @@ def xarray_zarr_datasets_to_stac_item(
     dscloud = dset_dict.get("eerie-cloud")
     if not isinstance(dscloud, xr.Dataset):
         dscloud = dset_dict.get("dkrz-cloud")
-    elif dscloud == item_ds and not item_id:
+    elif dscloud.equals(item_ds) and not item_id:
         item_id = dscloud.attrs["_xpublish_id"]
     if not isinstance(dscloud, xr.Dataset):
         dscloud = None
@@ -372,6 +372,7 @@ def xarray_zarr_datasets_to_stac_item(
         main_item_key=main_item_key,
         l_eeriecloud=l_eerie,
     )
+
     for k, ds in dset_dict.items():
         item = add_asset_for_ds(item, k, ds, item_id)
 
@@ -480,7 +481,7 @@ def get_bbox(
     lonmax: float = 180.0,
     latmax: float = 90.0,
 ) -> list:
-    if all(a in ds.variables for a in ["lon", "lat"]):
+    if all(a in ds.variables for a in ["lon", "lat"]) and any(isinstance(ds[a].data,DASKARRAY) for a in ds.data_vars):
         ds_withoutcoords = ds.reset_coords()
         try:
             lonmin = ds_withoutcoords["lon"].min().values[()]
@@ -672,7 +673,7 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         else:
             store_dataset_dict = dict(
                 store=defaults["EERIE_CLOUD_URL"] + "/",
-                dataset=defaults["EERIE_CLOUD_URL"] + "/" + item_id + "/zarr",
+                dataset=item_id + "/zarr",
             )
         var_store_dataset_dict = dict()
         # Add data variables as assets
