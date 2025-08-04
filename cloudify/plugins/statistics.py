@@ -5,7 +5,7 @@ from xpublish import Plugin, hookimpl, Dependencies
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Sequence
-from io import BytesIO
+import io
 
 def summarize_overall(df: pd.DataFrame) -> pd.DataFrame:
     """Compute overall statistics from the summary DataFrame."""
@@ -27,17 +27,27 @@ def read_csv(fn:str) -> pd.DataFrame:
         return df
     except:
         raise HTTPException(
-            status_code=404, detail=f"{project} not found"
+            status_code=404, detail=f"{fn} not found"
         )
 
 def create_tabulator_html(df:pd.DataFrame):
-    html_bytes=BytesIO()
+    html_bytes=io.BytesIO()
     tabu = pn.widgets.Tabulator(
         df,
         #show_index=False,
         widths={"var_names": 200}
     )
-    tabu.save(html_bytes, fmt="html", embed=True)
+    filename, button = tabu.download_menu(
+        text_kwargs={'name': 'Enter filename', 'value': 'default.csv'},
+        button_kwargs={'name': 'Download table'}
+    )
+    
+    out=pn.Row(
+        pn.Column(filename, button),
+        tabu
+    )    
+
+    out.save(html_bytes, fmt="html", embed=True)
     html_bytes.seek(0)    
     return html_bytes
 
@@ -57,34 +67,85 @@ class Stats(Plugin):
         router = APIRouter(prefix=self.app_router_prefix, tags=self.app_router_tags)
 
         @router.get("-summary", summary="Statistics over all datasets")
-        def get_eerie_collection(
+        def get_summary(
             dataset_ids=Depends(deps.dataset_ids)
         ):
             dfs = []
-            for dfsource in sorted(glob.glob("*datasets.csv")):
+            for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
                 dfs.append(read_csv(dfsource))
             df=pd.concat(dfs)
             sumdf=summarize_overall(df)
             html_bytes = create_tabulator_html(sumdf)
             return StreamingResponse(html_bytes, media_type="text/html")
 
-        @router.get("-summary_{project}", summary="Statistics over all datasets for a project")
-        def get_eerie_collection(
+        @router.get("-summary-csv", summary="Statistics over all datasets")
+        def get_summary(
+            dataset_ids=Depends(deps.dataset_ids)
+        ):
+            dfs = []
+            for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
+                dfs.append(read_csv(dfsource))
+            df=pd.concat(dfs)
+            sumdf=summarize_overall(df)
+
+            stream = io.StringIO()
+            df.to_csv(stream, index = False)
+            response = StreamingResponse(iter([stream.getvalue()]),
+                                 media_type="text/csv"
+                                )
+            response.headers["Content-Disposition"] = "attachment; filename=summary.csv"
+            return response            
+
+        @router.get("-summary-{project}", summary="Statistics over all datasets for a project")
+        def get_summary_project(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"{project}_datasets.csv")
+            df = read_csv(f"/tmp/{project}_datasets.csv")
 
             sumdf=summarize_overall(df)
             html_bytes = create_tabulator_html(sumdf)
             return StreamingResponse(html_bytes, media_type="text/html")
 
-        @router.get("-{project}", summary="Statistics for a project")
-        def get_eerie_collection(
+        @router.get("-summary-{project}-csv", summary="Statistics over all datasets for a project as csv")
+        def get_summary_project_csv(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"{project}_datasets.csv")
+            df = read_csv(f"/tmp/{project}_datasets.csv")
+
+            sumdf=summarize_overall(df)
+
+            stream = io.StringIO()    
+            sumdf.to_csv(stream, index = False)    
+            response = StreamingResponse(
+                    iter([stream.getvalue()]),
+                    media_type="text/csv"
+                    )
+            response.headers["Content-Disposition"] = f"attachment; filename=summary-{project}.csv"  
+            return response
+
+        @router.get("-{project}", summary="Statistics for a project")
+        def get_project(
+            project:str, dataset_ids=Depends(deps.dataset_ids)
+        ):
+            df = read_csv(f"/tmp/{project}_datasets.csv")
             html_bytes = create_tabulator_html(df)
             return StreamingResponse(html_bytes, media_type="text/html")
         
+        return router
+
+        @router.get("-{project}-csv", summary="Statistics for a project")
+        def get_project_csv(
+            project:str, dataset_ids=Depends(deps.dataset_ids)
+        ):
+            df = read_csv(f"/tmp/{project}_datasets.csv")
+            stream = io.StringIO()
+            df.to_csv(stream, index = False)
+            response = StreamingResponse(
+                    iter([stream.getvalue()]),        
+                    media_type="text/csv"
+                    )
+            response.headers["Content-Disposition"] = f"attachment; filename={project}.csv"
+            return response            
+
         return router
 
