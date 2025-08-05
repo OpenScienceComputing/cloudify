@@ -415,6 +415,8 @@ def get_dataset_dict_from_intake(
 
         upnames = [a["name"] for a in ups]
         comb = {}
+        if args.get("storage_options"):
+            comb["storage_options"]=args.get("storage_options")
         if not l_dask:
             comb["chunks"]=None
         else:
@@ -457,9 +459,7 @@ def get_dataset_dict_from_intake(
                     if mdupdate:
                         ds.attrs.update(md)
                     # chunks="auto",storage_options=storage_options).to_dask()
-                    ds.attrs["href"] = (
-                        ds.encoding["source"] if ds.encoding["source"] else urlpath
-                    )
+                    ds.attrs["href"] = urlpath
                     ds.attrs["open_kwargs"] = copy(args)
                     if l_dask:
                         ds.attrs["total_no_of_chunks"] = sum(
