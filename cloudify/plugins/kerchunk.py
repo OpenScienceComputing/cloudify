@@ -158,8 +158,10 @@ class KerchunkPlugin(Plugin):
                 resp = get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap)
             else:
                 gen = kerchunk_stream_content_safe_sync(fsmap, key)
+                first = next(gen)                
 
                 def full_stream():
+                    yield first
                     for chunk in gen:
                         yield chunk
 
