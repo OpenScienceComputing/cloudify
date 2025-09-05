@@ -1,5 +1,6 @@
 from typing import Sequence, Any, Generator
 from fastapi import APIRouter, Depends, HTTPException
+import asyncio
 #from fastapi.responses import HTMLResponse
 
 # fro mZarr:
@@ -66,6 +67,41 @@ def clean_json(obj: Any) -> Any:
     else:
         return obj
 
+def get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
+    cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, "") + "/kerchunk/" + f"{key}"
+    resp = cache.get(cache_key)
+    if resp is None:
+        zmetadata = json.loads(fsmap[".zmetadata"].decode("utf-8"))
+        zmetadata["zarr_consolidated_format"] = 1
+        if key == ".zgroup":
+            jsondump = json.dumps({"zarr_format": 2}).encode("utf-8")
+        elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
+            if zmetadata["metadata"].get(key):
+                cleaned = clean_json(zmetadata["metadata"][key])
+                jsondump = json.dumps(cleaned).encode("utf-8")
+            else:
+                raise HTTPException(status_code=404, detail=f"{key} not found")
+        else:
+            jsondump = json.dumps(zmetadata).encode("utf-8")
+
+        resp = Response(jsondump, media_type="application/octet-stream")
+        cache.put(cache_key, resp, 999)
+    return resp
+
+def set_headers_and_clear_garbage(resp):
+    global gctrigger
+    # Common headers
+    resp.headers["Cache-control"] = "max-age=604800"
+    resp.headers["X-EERIE-Request-Id"] = "True"
+    resp.headers["Last-Modified"] = todaystring
+
+    if gctrigger > GCLIMIT:
+        print("Run Gccollect")
+        gc.collect()
+        gctrigger = 0
+    gctrigger += 1
+    return resp
+
 class KerchunkPlugin(Plugin):
     """
     Kerchunk plugin for xpublish that provides kerchunk-based data access.
@@ -94,7 +130,7 @@ class KerchunkPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
             cache: cachey.Cache = Depends(deps.cache),
         ):
-            return await self._handle_request(key, dataset, cache, async_mode=True)
+            return await self._handle_request_async(key, dataset, cache)
 
         # ------------------------------
         # SYNC version
@@ -105,14 +141,11 @@ class KerchunkPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
             cache: cachey.Cache = Depends(deps.cache),
         ):
-            return self._handle_request(key, dataset, cache, async_mode=False)
+            return self._handle_request(key, dataset, cache)
 
         return router
 
-    # ------------------------------
-    # Shared logic for async/sync
-    # ------------------------------
-    async def _handle_request(self, key, dataset, cache, async_mode: bool):
+    def _handle_request(self, key, dataset, cache):
         global gctrigger
         if "source" not in dataset.encoding:
             raise HTTPException(status_code=404, detail="Dataset is not kerchunk-passable")
@@ -122,58 +155,50 @@ class KerchunkPlugin(Plugin):
 
         try:
             if any(a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs"]):
-                cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, "") + "/kerchunk/" + f"{key}"
-                resp = cache.get(cache_key)
-                if resp is None:
-                    zmetadata = json.loads(fsmap[".zmetadata"].decode("utf-8"))
-                    zmetadata["zarr_consolidated_format"] = 1
-                    if key == ".zgroup":
-                        jsondump = json.dumps({"zarr_format": 2}).encode("utf-8")
-                    elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
-                        if zmetadata["metadata"].get(key):
-                            cleaned = clean_json(zmetadata["metadata"][key])
-                            jsondump = json.dumps(cleaned).encode("utf-8")
-                        else:
-                            raise HTTPException(status_code=404, detail=f"{key} not found")
-                    else:
-                        jsondump = json.dumps(zmetadata).encode("utf-8")
-
-                    resp = Response(jsondump, media_type="application/octet-stream")
-                    cache.put(cache_key, resp, 999)
+                resp = get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap)
             else:
-                if async_mode:
-                    gen = kerchunk_stream_content_safe(fsmap, key)
-                    first = await anext(gen)
+                gen = kerchunk_stream_content_safe_sync(fsmap, key)
 
-                    async def full_stream():
-                        yield first
-                        async for chunk in gen:
-                            yield chunk
+                def full_stream():
+                    for chunk in gen:
+                        yield chunk
 
-                    resp = StreamingResponse(full_stream(), media_type="application/octet-stream")
-                else:
-                    gen = kerchunk_stream_content_safe_sync(fsmap, key)
+                resp = StreamingResponse(full_stream(), media_type="application/octet-stream")
 
-                    def full_stream():
-                        for chunk in gen:
-                            yield chunk
-
-                    resp = StreamingResponse(full_stream(), media_type="application/octet-stream")
-
-            # Common headers
-            resp.headers["Cache-control"] = "max-age=604800"
-            resp.headers["X-EERIE-Request-Id"] = "True"
-            resp.headers["Last-Modified"] = todaystring
-
+            resp = set_headers_and_clear_garbage(resp)
             fsmap.fs.dircache.clear()
-            del sp, dataset, key
-            if gctrigger > GCLIMIT:
-                print("Run Gccollect")
-                gc.collect()
-                gctrigger = 0
-            gctrigger += 1
+            #del sp, dataset, key
+            
             return resp
 
         except Exception:
             raise HTTPException(status_code=404, detail="Key error in reference dict")
-        return router
+    
+    async def _handle_request_async(self, key, dataset, cache):
+        global gctrigger
+        if "source" not in dataset.encoding:
+            raise HTTPException(status_code=404, detail="Dataset is not kerchunk-passable")
+
+        sp = dataset.encoding["source"]
+        fsmap = self.mapper_dict[sp]
+
+        try:
+            if any(a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs"]):
+                resp = get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap)                
+            else:
+                gen = kerchunk_stream_content_safe(fsmap, key)
+                first = await anext(gen)
+
+                async def full_stream():
+                    yield first
+                    async for chunk in gen:
+                        yield chunk
+
+                resp = StreamingResponse(full_stream(), media_type="application/octet-stream")
+
+            fsmap.fs.dircache.clear()
+            resp = set_headers_and_clear_garbage(resp)
+            return resp
+        
+        except Exception:
+            raise HTTPException(status_code=404, detail="Key error in reference dict")
