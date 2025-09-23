@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Sequence
 import io
+from bokeh.models.widgets.tables import HTMLTemplateFormatter
 
 def summarize_overall(df: pd.DataFrame) -> pd.DataFrame:
     """Compute overall statistics from the summary DataFrame."""
@@ -30,12 +31,36 @@ def read_csv(fn:str) -> pd.DataFrame:
             status_code=404, detail=f"{fn} not found"
         )
 
-def create_tabulator_html(df:pd.DataFrame):
+def create_tabulator_html(df:pd.DataFrame, l_explode:bool=False):
     html_bytes=io.BytesIO()
+    stacurl="https://discover.dkrz.de/external/eerie.cloud.dkrz.de/datasets/"
+    
+    link_formatter = HTMLTemplateFormatter(
+        template=f'<a target="_blank" href="{stacurl}/<%= value %>/stac"><%= value %></a>'
+    )
+    
+    if l_explode:
+        df = df.explode("var_names", ignore_index=True)   
+        for a in ["nvars", "nbytes [TB]","start_year","end_year", "no_of_years"]:
+            if a in df.columns:
+                del df[a]
+        df["aggregation"]=df["dataset_id"].str.split('.').str[-1]
+    
+        
     tabu = pn.widgets.Tabulator(
         df,
-        #show_index=False,
-        widths={"var_names": 200}
+        show_index=False,
+        widths={"var_names": 200},
+        formatters={"dataset_id": link_formatter},
+        #hidden_columns=["stac"],
+        pagination ="local",
+        header_filters=True,
+        selectable=1,
+        page_size=20,
+        editors={
+            a:None
+            for a in df.columns
+        }        
     )
     filename, button = tabu.download_menu(
         text_kwargs={'name': 'Enter filename', 'value': 'default.csv'},
@@ -128,7 +153,7 @@ class Stats(Plugin):
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
             df = read_csv(f"/tmp/{project}_datasets.csv")
-            html_bytes = create_tabulator_html(df)
+            html_bytes = create_tabulator_html(df, l_explode=True)
             return StreamingResponse(html_bytes, media_type="text/html")
         
         return router
