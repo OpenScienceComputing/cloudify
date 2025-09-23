@@ -34,9 +34,9 @@ L_DASK = True
 
 #from concurrent.futures import ThreadPoolExecutor
 #async def set_custom_executor():
-#    executor = ThreadPoolExecutor(max_workers=100)
+#    executor = ThreadPoolExecutor(max_workers=200)
 #    asyncio.get_event_loop().set_default_executor(executor)
-#    print("ThreadPoolExecutor set to 1 worker.")
+#    print("ThreadPoolExecutor set to 100 worker.")
 
 #if __name__ == "__main__":  # This avoids infinite subprocess creation
 kp = KerchunkPlugin()
@@ -61,12 +61,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-mapper_dict = {}    
-dsdict = {}
-
 async def start_all_datasets():
-    global collection, L_DASK, kp, mapper_dict, dsdict
-    await asyncio.sleep(0)    
+    await asyncio.sleep(0)
+    mapper_dict = {}    
+    dsdict = {}    
+    global collection, L_DASK, kp, app
     L_NEXTGEMS = True #True
     L_ORCESTRA = True #True #True
     L_COSMOREA = True #True #True
@@ -121,18 +120,34 @@ async def start_all_datasets():
     # collection.register_plugin(PlotPlugin())
 
     #collection.serve(host="0.0.0.0", port=9000, workers=2)
+    for k in mapper_dict.keys():
+        print(k)
+    #await set_custom_executor()
+    if L_DASK:
+        from dask.distributed import Client                
+        app.state.dask_client = Client(os.environ["ZARR_ADDRESS"])
 
 app.add_event_handler("startup", start_all_datasets)
 
 
 if __name__ == "__main__":  # This avoids infinite subprocess creation
-    if L_DASK:
+    nworkers=2
+    if L_DASK : 
         import dask
+        from dask.distributed import LocalCluster        
 
         dask.config.set({"array.slicing.split_large_chunks": False})
         dask.config.set({"array.chunk-size": "100 MB"})
         print("Start cluster")
-        zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())
+        #zarrcluster = get_dask_cluster()
+        zarrcluster = asyncio.get_event_loop().run_until_complete(LocalCluster(
+                processes=True,
+                n_workers=4,
+                threads_per_worker=16,
+                memory_limit="16GB",
+            )
+        )
+        os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address        
 
         # cluster.adapt(
         #        target_duration="0.1s",
@@ -145,6 +160,5 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         #        maximum_memory="48GB"
         #        )
         # client=Client(cluster)
-        os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address
-
-    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=2)
+        
+    uvicorn.run("__main__:app", host="0.0.0.0", port=9000, workers=nworkers)
