@@ -140,13 +140,13 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         dask.config.set({"array.chunk-size": "100 MB"})
         print("Start cluster")
         #zarrcluster = get_dask_cluster()
-        zarrcluster = asyncio.get_event_loop().run_until_complete(LocalCluster(
-                processes=True,
-                n_workers=4,
-                threads_per_worker=16,
-                memory_limit="16GB",
-            )
-        )
+        zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())#localCluster(
+                #processes=True,
+                #n_workers=4,
+                #threads_per_worker=16,
+                #memory_limit="16GB",
+            #)
+        #)
         os.environ["ZARR_ADDRESS"] = zarrcluster.scheduler._address        
 
         # cluster.adapt(
