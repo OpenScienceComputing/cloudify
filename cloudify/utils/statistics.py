@@ -18,8 +18,8 @@ def dataset_stats(ds: xr.Dataset) -> Dict[str, any]:
         try:
             years = pd.to_datetime(ds.time.values).year
             stats["no_of_years"] = len(set(years))
-            stats["start_year"] = years.min()
-            stats["end_year"] = years.max()            
+            stats["start_year"] = int(years.min())
+            stats["end_year"] = int(years.max())     
         except Exception:
             stats["no_of_years"] = 0
     return stats
@@ -30,10 +30,10 @@ def build_summary_df(ds_dict: Dict[str, xr.Dataset]) -> pd.DataFrame:
     rows = []
     for name, ds in ds_dict.items():
         row = dataset_stats(ds)
-        row["name"] = name
+        row["dataset_id"] = name
         rows.append(row)
     df = pd.DataFrame(rows)
-    return df.set_index("name")
+    return df.set_index("dataset_id")
 
 
 def print_summary(summary: Dict[str, any]):
