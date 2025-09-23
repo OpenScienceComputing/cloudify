@@ -203,7 +203,11 @@ class KerchunkPlugin(Plugin):
             resp = set_headers_and_clear_garbage(resp)
             return resp
         except Exception:
-            raise HTTPException(status_code=404, detail="Key error in reference dict")        
+            #raise HTTPException(status_code=404, detail="Key error in reference dict")
+            resp = Response(status_code=404, detail="Key error in reference dict")
+            resp = set_headers_and_clear_garbage(resp)
+            return resp
+
         
 
     def _handle_request_sync(self, key, dataset, cache):
@@ -236,4 +240,7 @@ class KerchunkPlugin(Plugin):
                 
         
         except Exception:
-            raise HTTPException(status_code=404, detail="Key error in reference dict")
+            #raise HTTPException(status_code=404, detail="Key error in reference dict")
+            resp = Response(status_code=404, detail="Key error in reference dict")
+            resp = set_headers_and_clear_garbage(resp)
+            return resp            
