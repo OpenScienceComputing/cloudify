@@ -3,9 +3,11 @@ import glob
 from tqdm import tqdm
 import xarray as xr
 from cloudify.utils.datasethelper import (
-    reset_encoding_get_mapper,
+    #reset_encoding_get_mapper,
+    open_zarr_and_mapper,
     adapt_for_zarr_plugin_and_stac,
-    set_compression
+    set_compression,
+    
 )
 from cloudify.utils.statistics import (
     build_summary_df,
@@ -55,12 +57,15 @@ def add_orcestra(
     init_dates_trunks = [
         a
         for a in sorted(glob.glob(TRUNK + "/*"))
-        if a.split("/")[-1][0] == "0"
-        if not "-rerun" in a
+        #if a.split("/")[-1][0] == "0"
+        #if not "-rerun" in a
+        if "-rerun" in a
     ]
     dsone = None
     local_dsdict={}
     for ini in tqdm(init_dates_trunks):
+        #if not "0819" in ini:
+        #    continue
         init_date = ini.split("/")[-1]
         for dim in DIMS:
             dstrunk = f'{ini}/{conf_dict["experiment_id"]}_{init_date}_{dim}_hpz12.zarr'
@@ -70,20 +75,26 @@ def add_orcestra(
             chunks="auto"
             if not l_dask:
                 chunks=None
-            ds = xr.open_dataset(
-                dstrunk, engine="zarr", consolidated=True, chunks=chunks
+            opts=dict(
+                consolidated=True,
+                chunks=chunks,
+            )                
+            ds, mapper_dict[dstrunk] = open_zarr_and_mapper(
+                dstrunk, storage_options=dict(cache_size=0),**opts
             )
             if not dsone:
                 dsone = ds.copy()
             ds["cell"] = dsone["cell"]
             ds.attrs.update(conf_dict)
-            print(ds.encoding["source"])
+            #print(ds.encoding["source"])
             print(dsname)
-            mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds, l_dask=l_dask)
+            #mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds, l_dask=l_dask)
             ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
             ds = set_compression(ds)
+            ds.encoding["source"]=dstrunk
             dsdict[dsname] = ds
             local_dsdict[dsname] = ds
+            
 
     df=build_summary_df(local_dsdict)
     df.to_csv("/tmp/orcestra_datasets.csv")

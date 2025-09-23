@@ -76,7 +76,7 @@ def add_eerie(
     """
     # EERIE catalog path
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
-    
+    L_STATS = True
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -124,10 +124,17 @@ def add_eerie(
             hostids += [
                     a
                     for a in find_data_sources(cat["model-output"][source])
-                    if not any(b in a for b in ["v2023", "3d_grid"]) #and "icon-esm" in a and "hist-1950" in a
+                    if not any(b in a for b in ["v2023", "3d_grid"]) and not (
+                        "spinup" in a and "fesom" in a
+                    ) 
+                        #"icon-esm-er.hist-1950.v20240618.atmos.native.2d_daily_mean" in a or
+                        #("ifs-amip-tco1279" in a and "hist" in a)
+                    #)
+                #'ifs-fesom2-sr' in a and 'hist-1950' in a and 'atmos' in a
+                #and "icon-esm" in a and "hist-1950" in a
             ]
 
-    localdsdict = get_dataset_dict_from_intake(
+    localmapperdict, localdsdict = get_dataset_dict_from_intake(
         cat["model-output"],
         hostids,
         whitelist_paths=["bm1344", "bm1235", "bk1377"],
@@ -136,16 +143,24 @@ def add_eerie(
             native=["lat", "lon", "cell_sea_land_mask"],
             healpix=["lat", "lon"]
         ),
-        l_dask=l_dask
+        l_dask=l_dask,
+        cache_size=0
     )
-    df=build_summary_df(localdsdict)
-    df.to_csv("eerie_datasets.csv")
-    su=summarize_overall(df)
-    print(print_summary(su))
+    if L_STATS:
+        df=build_summary_df(localdsdict)
+        df.to_csv("/tmp/eerie_datasets.csv")
+        su=summarize_overall(df)
+        print(print_summary(su))
 
     for dsid, ds in localdsdict.items():
         ds.attrs["_catalog_id"] = dsid
+        urlpath = ds.encoding["source"]
+        try:
+            mapper_dict[urlpath] = localmapperdict.pop(urlpath)
+        except:
+            continue
         if l_dask:
+            dsone = None
             if "native" in dsid:
                 dsone = dsonedict.get(
                     next(
@@ -184,15 +199,19 @@ def add_eerie(
             ds = gribscan_to_float(ds)
 
         # lossy has to come first!
-        if not "grid" in dsid:
-            if "native" in dsid or "_11" in dsid or "_10" in dsid:
-                ds = apply_lossy_compression(ds, l_dask)
-        mapper_dict, ds = reset_encoding_get_mapper(
-            mapper_dict,
-            dsid,
-            ds,  # desc=desc
-            l_dask=l_dask
-        )
+            if not "grid" in dsid:
+                if "native" in dsid or "_11" in dsid or "_10" in dsid:
+                    ds = apply_lossy_compression(ds, l_dask)
+
+            ds = ds.drop_encoding()
+            ds.encoding["source"]=urlpath
+
+        #mapper_dict, ds = reset_encoding_get_mapper(
+        #    mapper_dict,
+        #    dsid,
+        #    ds,  # desc=desc
+        #    l_dask=l_dask
+        #)
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
         ds = set_compression(ds)
         dsdict[dsid] = ds

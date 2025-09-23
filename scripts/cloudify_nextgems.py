@@ -19,38 +19,6 @@ from cloudify.utils.statistics import (
 )
 
 
-def refine_nextgems(
-    mapper_dict: Dict[str, Any],
-    iakey: str,
-    ds: xr.Dataset,
-    desc: Dict[str, Any],
-    l_dask: bool = True
-) -> tuple[Dict[str, Any], xr.Dataset]:
-    """
-    Refine NEXTGEMS dataset with metadata and compression settings.
-
-    Args:
-        mapper_dict: Dictionary mapping dataset IDs to storage mappers
-        iakey: Dataset identifier
-        ds: xarray Dataset to refine
-        desc: Dataset description containing metadata
-
-    Returns:
-        tuple[Dict[str, Any], xr.Dataset]: Updated mapper_dict and refined dataset
-    """
-    # Add metadata from description
-    for mdk, mdv in desc.get("metadata", {}).items():
-        if mdk not in ds.attrs:
-            ds.attrs[mdk] = mdv
-
-    # Prepare dataset for storage
-    mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, iakey, ds, desc=desc, l_dask=l_dask)
-    ds = adapt_for_zarr_plugin_and_stac(iakey, ds)
-    ds = set_compression(ds)
-
-    return mapper_dict, ds
-
-
 def get_args(desc: Dict[str, Any]) -> Dict[str, Any]:
     """
     Get processed arguments from dataset description.
@@ -143,7 +111,9 @@ def add_nextgems(
     
     # Define datasets to process
     DS_ADD = [
-        "ICON.ngc5004"
+        #"ICON.ngc5004"
+        #"IFS.IFS_2.8-FESOM_5-production.2D_hourly_healpix2048",
+        #"IFS.IFS_2.8-FESOM_5-production.3D_hourly_healpix128"
     ]  # "IFS.IFS_9-FESOM_5-production.2D_hourly_healpix512"]
     DS_ADD_SIM = [
         "IFS.IFS_2.8-FESOM_5-production-parq",
@@ -185,7 +155,8 @@ def add_nextgems(
         prefix="nextgems.",
         storage_chunk_patterns=["2048"],
         drop_vars={"25deg": ["lat", "lon"]},
-        l_dask=l_dask
+        l_dask=l_dask,
+        cache_size=0
     )
 
     # Process each dataset
@@ -209,11 +180,17 @@ def add_nextgems(
     for ia, ds in localdsdict.items():
         # for ia in all_ds:
         print(ia)
+        urlpath = ds.encoding.get("source")        
+        mapper_dict[urlpath]=tempmapdict.pop(urlpath)
+
+        for mdk, mdv in descdict[ia].get("metadata", {}).items():
+            if mdk not in ds.attrs:
+                ds.attrs[mdk] = mdv
+
         if l_dask:
+            ds = ds.drop_encoding()
             print("gribscan to float")
-            ds = gribscan_to_float(ds)
-        mapper_dict, ds = refine_nextgems(mapper_dict, ia, ds, descdict[ia],l_dask=l_dask)
-        if l_dask:
+            ds = gribscan_to_float(ds)            
             if "25deg" in ia :
                 ds.coords["lat"] = gr_025["lat"]
                 ds.coords["lon"] = gr_025["lon"]
@@ -221,8 +198,14 @@ def add_nextgems(
             if "crs" in ds.variables:
                 if len(str(ds["crs"].attrs.get("healpix_nside", "No"))) >= 4:
                     ds = apply_lossy_compression(ds)
-        elif "healpix" in ia:
+            ds.encoding["source"]=urlpath
+                    
+        if "healpix" in ia:
             ds = add_healpix(ia, ds)
+            
+        ds = adapt_for_zarr_plugin_and_stac(ia, ds)
+        ds = set_compression(ds)         
+        
         dsdict[ia] = ds
     del localdsdict
     return mapper_dict, dsdict

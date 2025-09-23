@@ -59,7 +59,9 @@ def add_era5(
             continue
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)
-    tempdict,rawdsdict = get_dataset_dict_from_intake(cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask)
+    tempdict,rawdsdict = get_dataset_dict_from_intake(
+        cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask, cache_size=0
+    )
     df=build_summary_df(rawdsdict)
     df.to_csv("/tmp/era5_datasets.csv")
     su=summarize_overall(df)
@@ -68,20 +70,23 @@ def add_era5(
 
     for dsname in rawdsdict.keys():
         ds = rawdsdict[dsname]
+        urlpath = ds.encoding.get("source")        
+        mapper_dict[urlpath]=tempdict.pop(urlpath)
         
         # Set coordinates
         if l_dask:
+            ds = ds.drop_encoding()
             for l in ["lat", "lon"]:
                 ds.coords[l] = dsone[l].copy()
+            ds = gribscan_to_float(ds)       
+            ds.encoding["source"]=urlpath
 
         # Prepare dataset for storage
-        mapper_dict, ds = reset_encoding_get_mapper(
-            mapper_dict, dsname, ds, desc=cat[dsname].describe(), l_dask=l_dask
-        )
+        #mapper_dict, ds = reset_encoding_get_mapper(
+        #    mapper_dict, dsname, ds, desc=cat[dsname].describe(), l_dask=l_dask
+        #)
 
         # Process dataset
-        if l_dask:
-            ds = gribscan_to_float(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
         ds = set_compression(ds)
 

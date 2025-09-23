@@ -72,6 +72,7 @@ def add_cosmorea(
         desc = cat[dsname].describe()
         urlpath= cat[dsname].urlpath
         desc["args"]["storage_options"]["remote_protocol"] = "file"
+        desc["args"]["storage_options"]["cache_size"]=0
         dsid = "cosmo-rea-" + dsname            
         ds, mapper = open_zarr_and_mapper(
                 urlpath,
@@ -86,7 +87,7 @@ def add_cosmorea(
         if l_dask:
             for l in ["latitude", "longitude"]:
                 ds.coords[l] = dsone[l]
-        ds = ds.drop_encoding()
+            ds = ds.drop_encoding()
         ds.encoding["source"]=urlpath
         mapper_dict[urlpath]=mapper        
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)

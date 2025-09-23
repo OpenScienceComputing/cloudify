@@ -53,8 +53,10 @@ def add_dyamond(
         storage_chunk_patterns=["EU"],
         allowed_ups=dict(zoom=["10", "11"]),
         mdupdate=True,
-        l_dask=l_dask
+        l_dask=l_dask,
+        cache_size=0
     )
+    print(tempdict.keys())
     df=build_summary_df(localdsdict)
     df.to_csv("/tmp/dyamond_datasets.csv")
     su=summarize_overall(df)
