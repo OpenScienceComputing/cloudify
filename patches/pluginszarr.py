@@ -6,7 +6,7 @@ todaystring=datetime.today().strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 import cachey  # type: ignore
 import xarray as xr
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from starlette.responses import Response  # type: ignore
 from zarr.storage import array_meta_key, attrs_key, group_meta_key  # type: ignore
 from numcodecs.abc import Codec
@@ -79,6 +79,7 @@ class ZarrPlugin(Plugin):
 
         @router.api_route('/{var}/{chunk}',methods=['GET', 'HEAD'])
         def get_variable_chunk(
+            request: Request,
             var: str = Path(description='Variable in dataset'),
             chunk: str = Path(description='Zarr chunk'),
             dataset: xr.Dataset = Depends(deps.dataset),
@@ -89,6 +90,7 @@ class ZarrPlugin(Plugin):
             This will return cached responses when available.
 
             """
+            app=request.app
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
 
@@ -121,6 +123,7 @@ class ZarrPlugin(Plugin):
                 da = zvariables[var].data
 
                 data_chunk = get_data_chunk(
+                        app.state.dask_client,
                         da,
                         chunk,
                         out_shape=arr_meta['chunks'],

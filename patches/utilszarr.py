@@ -201,26 +201,29 @@ def encode_chunk(
 
     return cdata
 
-import os
 from dask.distributed import Client
+import os
 import gc
 import asyncio
 gccounter=0
 GCLIMIT=100
-async def calc_chunk(chunk_data_raw):
+#async def calc_chunk(chunk_client,chunk_data_raw):
+def calc_chunk(chunk_client,chunk_data_raw):
     global gccounter
     chunk_data = None
-    zarraddress=os.environ["ZARR_ADDRESS"]
-    with Client(zarraddress) as chunk_client:
-        chunk_data = chunk_client.compute(chunk_data_raw).result()
-        del chunk_data_raw
-        if gccounter > GCLIMIT:
-            gc.collect()
-            gccounter=0
-        gccounter+=1
+#    zarraddress=os.environ["ZARR_ADDRESS"]
+#    with chunk_client:
+    chunk_data = chunk_client.compute(chunk_data_raw)
+    chunk_data = chunk_client.gather(chunk_data)
+    del chunk_data_raw
+    if gccounter > GCLIMIT:
+        chunk_client.run(gc.collect)
+        gccounter=0
+    gccounter+=1
     return chunk_data
 
 def get_data_chunk(
+    client: Client,
     da: xr.DataArray,
     chunk_id: str,
     out_shape: tuple,
@@ -244,7 +247,8 @@ def get_data_chunk(
 
     chunk_data=chunk_data_raw
     if isinstance(chunk_data, DaskArrayType):
-        chunk_data = asyncio.get_event_loop().run_until_complete(calc_chunk(chunk_data_raw))
+#        chunk_data = asyncio.run(calc_chunk(client,chunk_data_raw))
+        chunk_data = calc_chunk(client,chunk_data_raw)
 
     # zarr expects full edge chunks, contents out of bounds for the array are undefined
     if chunk_data.shape != tuple(out_shape):
