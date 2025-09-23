@@ -70,7 +70,7 @@ def add_cosmorea(
         if not l_dask:
             chunks=None
         desc = cat[dsname].describe()
-        urlpath= cat[dsname].urlpath
+        urlpath= cat[dsname](protocol="file").urlpath
         desc["args"]["storage_options"]["remote_protocol"] = "file"
         desc["args"]["storage_options"]["cache_size"]=0
         dsid = "cosmo-rea-" + dsname            
