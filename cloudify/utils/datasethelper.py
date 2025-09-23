@@ -3,18 +3,23 @@ import gribscan
 import numpy as np
 import intake
 import itertools
-import fsspec
 import xarray as xr
 from datetime import datetime
 from copy import deepcopy as copy
 import fastapi
 import numcodecs
+import fsspec
+from fsspec.core import url_to_fs
+from fsspec.mapping import FSMap
+from fsspec.implementations.asyn_wrapper import AsyncFileSystemWrapper
+import asyncio
+
 rounding = numcodecs.BitRound(keepbits=10)
 
 STORAGE_OPTIONS = dict(
     #        remote_protocol="file",
     lazy=True,
-    cache_size=0
+    #cache_size=128#0
     #        skip_instance_cache=True,
     #        listings_expiry_time=0
 )
@@ -39,6 +44,44 @@ DEFAULT_COORDS = [
     "latitude",
     "longitude"
 ]
+
+class AsyncFSMap(FSMap):
+    """
+    Async version of FSMap: dict-like interface to a filesystem.
+    Works only with AsyncFileSystem backends.
+    """
+
+    def __init__(self, root, fs, check=False, create=False, missing_exceptions=(FileNotFoundError,),**kwargs):
+        if not fs.async_impl:
+            print("not async")
+            fs = AsyncFileSystemWrapper(fs, asynchronous=False)
+        super().__init__(
+            root, fs, check=False, create=False, missing_exceptions=(FileNotFoundError,)
+        )
+        self.use_options=kwargs
+
+    async def asyncitem(self, key):
+        """Retrieve data asynchronously"""
+        k = self._key_to_str(key)
+        #try:
+        result = await self.fs._cat(k)
+        #except self.missing_exceptions as exc:
+        #    raise KeyError(key) from exc
+        return result
+
+def async_get_mapper(
+    url="",
+    check=False,
+    create=False,
+    missing_exceptions=None,
+    alternate_root=None,
+    **kwargs,
+):
+    fs, urlpath = url_to_fs(url, **kwargs)
+    root = alternate_root if alternate_root is not None else urlpath    
+    return AsyncFSMap(root, fs, check, create, missing_exceptions=missing_exceptions, **kwargs)    
+    #return FSMap(root, fs, check, create, missing_exceptions=missing_exceptions)
+
 
 def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Cache-control"] = "max-age=3600"
@@ -112,14 +155,21 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
     if not use_options.get("remote_protocol") and uri.startswith("reference"):
         use_options["remote_protocol"] = "file"
         print(use_options)
+    #use_options["remote_options"]=dict(asyncronous=True)
     mapper = fsspec.get_mapper(uri, **use_options)
+    #use_options["asyncronous"]=False
+    lp = asyncio.get_running_loop()
+    use_options["loop"]=lp
+    use_options["remote_options"]=dict(loop=lp)
+    asyncmapper = async_get_mapper(uri, **use_options)    
+
     ds = xr.open_dataset(
             mapper,
             engine="zarr",
             **kwargs
             )
 
-    return ds,mapper
+    return ds,asyncmapper
 
 def chunk_and_prepare_fesom(ds: xr.Dataset) -> xr.Dataset:
     """
@@ -364,7 +414,8 @@ def get_dataset_dict_from_intake(
     storage_chunk_patterns: list = None,
     allowed_ups: dict = None,
     mdupdate: bool = False,
-    l_dask: bool = True
+    l_dask: bool = True,
+    cache_size: int = 128
 ):
     """
     Load datasets from intake catalog with configurable options.
@@ -417,6 +468,8 @@ def get_dataset_dict_from_intake(
         comb = {}
         if args.get("storage_options"):
             comb["storage_options"]=args.get("storage_options")
+            if not comb["storage_options"].get("cache_size"):
+                comb["storage_options"]["cache_size"]=cache_size
         if not l_dask:
             comb["chunks"]=None
         else:
@@ -449,8 +502,9 @@ def get_dataset_dict_from_intake(
                 if urlpath.startswith("reference"):
                     comb["consolidated"]=False
                 elif args.get("consolidated"):
-                    comb["consolidated"]=args.get("consolidated")                
+                    comb["consolidated"]=args.get("consolidated")               
                 try:
+#                if True:
                     #ds = cat[dsname](**comb).to_dask()
                     ds,mapper = open_zarr_and_mapper(urlpath, **comb)
                     ds.encoding["source"]=urlpath
@@ -459,7 +513,9 @@ def get_dataset_dict_from_intake(
                     if mdupdate:
                         ds.attrs.update(md)
                     # chunks="auto",storage_options=storage_options).to_dask()
-                    ds.attrs["href"] = urlpath
+                    ds.attrs["href"] = (
+                        ds.encoding["source"] if ds.encoding["source"] else urlpath
+                    )
                     ds.attrs["open_kwargs"] = copy(args)
                     if l_dask:
                         ds.attrs["total_no_of_chunks"] = sum(
@@ -476,6 +532,7 @@ def get_dataset_dict_from_intake(
                     continue
         else:
             try:
+#            if True:
                 if urlpath.startswith("reference"):
                     comb["consolidated"]=False
                 elif args.get("consolidated"):
