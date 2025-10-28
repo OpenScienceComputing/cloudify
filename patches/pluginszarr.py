@@ -26,6 +26,18 @@ from .. import Dependencies, Plugin, hookimpl
 
 logger = logging.getLogger('zarr_api')
 
+def validate_dask_arrays(dataset):
+    """Raise an error if any data variable is not a Dask array"""
+    non_dask_vars = [
+        name for name, var in dataset.data_vars.items() 
+        if var.chunks is None
+    ]
+    if non_dask_vars:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The following variables are not Dask arrays: {', '.join(non_dask_vars)}"
+        )
+    
 
 class ZarrPlugin(Plugin):
     """Adds Zarr-like accessing endpoints for datasets"""
@@ -47,6 +59,7 @@ class ZarrPlugin(Plugin):
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
+            validate_dask_arrays(dataset)
             """Consolidated Zarr metadata"""
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
@@ -60,6 +73,7 @@ class ZarrPlugin(Plugin):
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
+            validate_dask_arrays(dataset)
             """Zarr group data"""
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
@@ -71,6 +85,7 @@ class ZarrPlugin(Plugin):
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
+            validate_dask_arrays(dataset)
             """Zarr attributes"""
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
@@ -90,6 +105,7 @@ class ZarrPlugin(Plugin):
             This will return cached responses when available.
 
             """
+            validate_dask_arrays(dataset)
             app=request.app
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
