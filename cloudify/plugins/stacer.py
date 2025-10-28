@@ -481,7 +481,7 @@ def get_bbox(
     lonmax: float = 180.0,
     latmax: float = 90.0,
 ) -> list:
-    if all(a in ds.variables for a in ["lon", "lat"]) and any(isinstance(ds[a].data,DASKARRAY) for a in ds.data_vars):
+    if all(a in ds.variables for a in ["lon", "lat"]) and all((ds[a].chunks) for a in ds.data_vars):
         ds_withoutcoords = ds.reset_coords()
         try:
             lonmin = ds_withoutcoords["lon"].min().values[()]
