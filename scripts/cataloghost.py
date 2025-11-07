@@ -12,6 +12,7 @@ from cloudify_era5 import *
 from cloudify_eerie import *
 from cloudify_nextgems import *
 from cloudify_orcestra import *
+from cloudify_cordexcmip6 import *
 import xarray as xr
 from datetime import datetime
 from cloudify.utils.datasethelper import *
@@ -71,6 +72,7 @@ async def start_all_datasets():
     L_COSMOREA = True #True #True
     L_ERA5 = True #True
     L_DYAMOND = True #True #True
+    L_CORDEXCMIP6 = True
     L_EERIE = True # True #True
     
     if L_COSMOREA:
@@ -93,6 +95,10 @@ async def start_all_datasets():
         print(f"After ERA: {len_m}")       
     if L_DYAMOND:
         mapper_dict, dsdict = add_dyamond(mapper_dict, dsdict, l_dask=False)
+        print(f"After DYAMOND: {len(dsdict)}")
+        print(f"After DYAMOND: {len(mapper_dict)}")        
+    if L_CORDEXCMIP6:
+        mapper_dict, dsdict = add_cordexcmip6(mapper_dict, dsdict, l_dask=False)
         print(f"After DYAMOND: {len(dsdict)}")
         print(f"After DYAMOND: {len(mapper_dict)}")        
     if L_EERIE:
