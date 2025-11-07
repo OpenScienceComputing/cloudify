@@ -204,7 +204,7 @@ class KerchunkPlugin(Plugin):
             return resp
         except Exception:
             #raise HTTPException(status_code=404, detail="Key error in reference dict")
-            resp = Response(status_code=404, detail="Key error in reference dict")
+            resp = Response(status_code=404)
             resp = set_headers_and_clear_garbage(resp)
             return resp
 
