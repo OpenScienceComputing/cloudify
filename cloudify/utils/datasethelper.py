@@ -83,6 +83,83 @@ def async_get_mapper(
     #return FSMap(root, fs, check, create, missing_exceptions=missing_exceptions)
 
 
+def sanitize_for_json(obj):
+    """Recursively convert zarr/numcodecs objects into JSON-safe dicts."""
+    # Handle codec or filter objects
+    if isinstance(obj, numcodecs.abc.Codec):
+        d = {"id": obj.codec_id}
+        # Add common attributes if they exist
+        for attr in ("cname", "clevel", "shuffle", "blocksize"):
+            if hasattr(obj, attr):
+                d[attr] = getattr(obj, attr)
+        return d
+
+    # Handle numpy dtypes and similar
+    import numpy as np
+    if isinstance(obj, np.dtype):
+        return str(obj)
+
+    # Recursively sanitize dicts and lists
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    return obj
+
+
+def consolidate_zmetadatas_for_tree(zmetadatas: dict[str, dict]) -> dict:
+    """
+    Consolidate multiple single-group zmetadata dicts into one higher-level hierarchy.
+    
+    Assumes each zmetadata contains only one group (no nested subgroups inside).
+    Creates intermediate subgroups for all keys based on '/'.
+    """
+    store = MemoryStore()
+
+    for root_name, zmeta in zmetadatas.items():
+        if "metadata" not in zmeta:
+            raise ValueError(f"{root_name} is not a valid .zmetadata dict")
+
+        # Collect variable parent paths (parent of .zarray/.zattrs)
+        variable_parents = set()
+        for key in zmeta["metadata"]:
+            if key.endswith((".zarray", ".zattrs")):
+                full_path = Path(root_name) / key
+                variable_parents.add(str(full_path.parent).replace("\\", "/"))
+
+        for key, value in zmeta["metadata"].items():
+            full_key = Path(root_name) / key
+            full_key_str = str(full_key).replace("\\", "/")
+            value = sanitize_for_json(value)
+
+            # Write array metadata or other entries
+            if full_key_str.endswith(".zarray"):
+                if not isinstance(value.get("dtype"), str):
+                    encoded = encode_array_metadata(value)
+                else:
+                    encoded = json.dumps(value)
+                store[full_key_str] = encoded.encode()
+            else:
+                store[full_key_str] = json.dumps(value).encode()
+
+            # Create .zgroup for all parent paths except variable parent
+            for dotz in [".zgroup",".zattrs"]:
+                parent = full_key.parent                
+                while str(parent) != ".":
+                    gkey = str(parent / dotz).replace("\\", "/")
+                    if gkey not in store and str(parent) not in variable_parents:
+                        store[gkey] = json.dumps({}).encode()                        
+                        if dotz == ".zgroup":
+                            store[gkey] = json.dumps({"zarr_format": 2}).encode()
+                    parent = parent.parent
+                    
+    # Root group
+    store[".zgroup"] = json.dumps({"zarr_format": 2}).encode()
+
+    # Consolidate
+    zarr.consolidate_metadata(store)
+    return json.loads(store[".zmetadata"].decode())
+    
 def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Cache-control"] = "max-age=3600"
     response.headers["X-EERIE-Request-Id"] = "True"
