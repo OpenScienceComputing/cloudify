@@ -23,9 +23,15 @@ import fastapi
 import uvicorn
 from starlette.middleware.cors import CORSMiddleware
 import nest_asyncio
+from pathlib import Path
+from filelock import FileLock
+import shutil
+
 nest_asyncio.apply()
 
 os.environ["FORWARDED_ALLOW_IPS"] = "127.0.0.1"
+
+TREE_DIR = Path("/tmp/tree.zarr")
 
 from intake.config import conf
 conf["cache_disabled"] = True
@@ -67,13 +73,13 @@ async def start_all_datasets():
     mapper_dict = {}    
     dsdict = {}    
     global collection, L_DASK, kp, app
-    L_NEXTGEMS = True #True
+    L_NEXTGEMS = False #True
     L_ORCESTRA = True #True #True
-    L_COSMOREA = True #True #True
-    L_ERA5 = True #True
-    L_DYAMOND = True #True #True
-    L_CORDEXCMIP6 = True
-    L_EERIE = True # True #True
+    L_COSMOREA = False #True #True
+    L_ERA5 = False #True
+    L_DYAMOND = False #True #True
+    L_CORDEXCMIP6 = False
+    L_EERIE = False# True #True
     
     if L_COSMOREA:
         mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict, l_dask=L_DASK)
@@ -98,7 +104,7 @@ async def start_all_datasets():
         print(f"After DYAMOND: {len(dsdict)}")
         print(f"After DYAMOND: {len(mapper_dict)}")        
     if L_CORDEXCMIP6:
-        mapper_dict, dsdict = add_cordexcmip6(mapper_dict, dsdict, l_dask=False)
+        mapper_dict, dsdict = add_cordexcmip6(mapper_dict, dsdict, l_dask=L_DASK)
         print(f"After DYAMOND: {len(dsdict)}")
         print(f"After DYAMOND: {len(mapper_dict)}")        
     if L_EERIE:
@@ -119,6 +125,58 @@ async def start_all_datasets():
     # collection.register_plugin(DynamicKerchunk())
     # collection.register_plugin(DynamicKerchunk())
     # collection.register_plugin(DynamicAdd())
+    LOCK_PATH = Path("tree_build.lock")
+    #dt=xr.DataTree()
+    with FileLock(str(LOCK_PATH)):
+        if TREE_DIR.exists():
+            print("Zarr tree already exists, skipping build.")
+        else:
+            print("dumping tree")            
+            TREE_DIR.mkdir()
+            merged_dict={}
+                #list(dsdict.keys())[0]+"/zarr": create_zmetadata(list(dsdict.values())[0])
+                #k+"/zarr": create_zmetadata(v)
+                #for k,v in dsdict.items()
+                #if not v[list(v.data_vars)[0]].chunks is None
+            #}
+            print("updating with kerchunk")
+            for k in dsdict.keys():
+                if dsdict[k].encoding.get("source") in mapper_dict:
+                    try:
+                    #if True:
+                        merged_dict.update({
+                            k+"/kerchunk": json.loads(
+                                mapper_dict[dsdict[k].encoding.get("source")][".zmetadata"].decode("utf-8")
+                            )
+                        })
+                    except:
+                        print(dsdict[k].encoding.get("source"))
+                else:
+                    print(f"No source for {k}")
+        
+                ##list(dsdict.keys())[0]+"/zarr": create_zmetadata(list(dsdict.values())[0])
+                #k+"/kerchunk": json.loads(
+                #    mapper_dict[dsdict[k].encoding.get("source")][".zmetadata"].decode("utf-8")
+                #) #fsspec.get_mapper(v)[".zmetadata"]
+                #for k in dsdict.keys()
+                #if dsdict[k].encoding.get("source") in mapper_dict
+            #})
+            merged = consolidate_zmetadatas_for_tree(merged_dict)
+            print("Succesfully created tree")
+            #dt[list(dsdict.keys())[0]+"/zarr"]=list(dsdict.values())[0]
+            #dt.to_zarr(
+            #    "tree2.zarr",
+            #    zarr_format=2,
+            #    compute=False,
+            #    consolidated=True
+            #)
+            # You now have a valid combined consolidated .zmetadata
+            with open("/tmp/tree.zarr/.zmetadata", "w") as f:
+                json.dump(merged, f, indent=4)
+            with open("/tmp/tree.zarr/.zgroup", "w") as f:
+                json.dump({"zarr_format":2}, f, indent=4)
+                
+    print("finalised dumping")    
     collection.setup_datasets(dsdict)
     # collection.register_plugin(Stac())
     #collection.register_plugin(Stats())
@@ -138,6 +196,9 @@ app.add_event_handler("startup", start_all_datasets)
 
 if __name__ == "__main__":  # This avoids infinite subprocess creation
     nworkers=2
+    if TREE_DIR.exists() and TREE_DIR.is_dir():
+        shutil.rmtree(TREE_DIR)
+    
     if L_DASK : 
         import dask
         from dask.distributed import LocalCluster        
