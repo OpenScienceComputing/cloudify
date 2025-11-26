@@ -163,6 +163,7 @@ def add_nextgems(
     for dsn in list(localdsdict.keys()):
         iakey = dsn.replace("-parq", "")
         desckey = iakey.replace("nextgems.", "")
+        iakey = iakey.replace('IFS.IFS','IFS')
         localdsdict[iakey] = localdsdict.pop(dsn)
 
         try:
