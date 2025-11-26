@@ -25,6 +25,7 @@ from starlette.middleware.cors import CORSMiddleware
 import nest_asyncio
 from pathlib import Path
 from filelock import FileLock
+import shutil
 
 nest_asyncio.apply()
 
@@ -170,9 +171,9 @@ async def start_all_datasets():
             #    consolidated=True
             #)
             # You now have a valid combined consolidated .zmetadata
-            with open("tree.zarr/.zmetadata", "w") as f:
+            with open("/tmp/tree.zarr/.zmetadata", "w") as f:
                 json.dump(merged, f, indent=4)
-            with open("tree.zarr/.zgroup", "w") as f:
+            with open("/tmp/tree.zarr/.zgroup", "w") as f:
                 json.dump({"zarr_format":2}, f, indent=4)
                 
     print("finalised dumping")    
@@ -195,6 +196,9 @@ app.add_event_handler("startup", start_all_datasets)
 
 if __name__ == "__main__":  # This avoids infinite subprocess creation
     nworkers=2
+    if TREE_DIR.exists() and TREE_DIR.is_dir():
+        shutil.rmtree(TREE_DIR)
+    
     if L_DASK : 
         import dask
         from dask.distributed import LocalCluster        
