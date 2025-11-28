@@ -74,17 +74,17 @@ def create_response_for_zmetadata(zm, key):
     zmetadata = json.loads(zm.decode("utf-8"))
     zmetadata["zarr_consolidated_format"] = 1
     if key == ".zgroup":
-        jsondump = json.dumps({"zarr_format": 2}).encode("utf-8")
+        jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
     elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
         if zmetadata["metadata"].get(key):
             cleaned = clean_json(zmetadata["metadata"][key])
-            jsondump = json.dumps(cleaned).encode("utf-8")
+            jsondump = json.dumps(cleaned) #.encode("utf-8")
         else:
             raise HTTPException(status_code=404, detail=f"{key} not found")
     else:
-        jsondump = json.dumps(zmetadata).encode("utf-8")
+        jsondump = json.dumps(zmetadata) #.encode("utf-8")
 
-    return Response(jsondump, media_type="application/octet-stream")
+    return Response(jsondump, media_type="application/json")
     
 async def get_zarr_config_response_async(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, "") + "/kerchunk/" + f"{key}"
@@ -204,7 +204,7 @@ class KerchunkPlugin(Plugin):
             return resp
         except Exception:
             #raise HTTPException(status_code=404, detail="Key error in reference dict")
-            resp = Response(status_code=404)#, detail="Key error in reference dict")
+            resp = Response(status_code=404)
             resp = set_headers_and_clear_garbage(resp)
             return resp
 
@@ -241,6 +241,6 @@ class KerchunkPlugin(Plugin):
         
         except Exception:
             #raise HTTPException(status_code=404, detail="Key error in reference dict")
-            resp = Response(status_code=404)#, detail="Key error in reference dict")
+            resp = Response(status_code=404, detail="Key error in reference dict")
             resp = set_headers_and_clear_garbage(resp)
             return resp            

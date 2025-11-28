@@ -291,8 +291,13 @@ def get_item_from_source(
         **cube,
     }
     if "crs" in ds.variables:
-        zoomint = math.log2(int(ds["crs"].attrs["healpix_nside"]))
-        properties["zoom"] = int(math.log2(int(ds["crs"].attrs["healpix_nside"])))
+        hn = ds["crs"].attrs.get("healpix_nside")
+        if hn:
+            try:
+                zoomint = int(math.log2(int(hn)))
+                properties["zoom"] = int(zoomint)
+            except:
+                pass
 
     for dsatt, dsattval in ds.attrs.items():
         if not properties.get(dsatt) and not "time" in dsatt.lower():
@@ -481,6 +486,7 @@ def get_bbox(
     lonmax: float = 180.0,
     latmax: float = 90.0,
 ) -> list:
+    return [lonmin, latmin, lonmax, latmax]
     if all(a in ds.variables for a in ["lon", "lat"]) and all((ds[a].chunks) for a in ds.data_vars):
         ds_withoutcoords = ds.reset_coords()
         try:
@@ -673,7 +679,7 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         else:
             store_dataset_dict = dict(
                 store=defaults["EERIE_CLOUD_URL"] + "/",
-                dataset=item_id + "/zarr",
+                dataset=item_id + "/kerchunk",
             )
         var_store_dataset_dict = dict()
         # Add data variables as assets
@@ -711,7 +717,10 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         itemdict["levels"] = [
             dict(
                 name=item_id,
-                time=copy(store_dataset_dict),
+                time=dict(
+                    store=defaults["EERIE_CLOUD_URL"] + "/",
+                    dataset=item_id + "/zarr",
+                    ),
                 grid=griddict,
                 datasources=var_store_dataset_dict,
             )
@@ -844,6 +853,7 @@ class Stac(Plugin):
                 item_dict = xarray_zarr_datasets_to_stac_item(
                     {"dkrz-disk": dssource, "eerie-cloud": ds}
                 )
+                item_dict["properties"]["title"]=ds.attrs["_xpublish_id"]
                 ds.encoding["source"] = dssource
                 resp = JSONResponse(item_dict)
                 # except:
