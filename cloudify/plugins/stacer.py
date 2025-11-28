@@ -679,7 +679,7 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         else:
             store_dataset_dict = dict(
                 store=defaults["EERIE_CLOUD_URL"] + "/",
-                dataset=item_id + "/zarr",
+                dataset=item_id + "/kerchunk",
             )
         var_store_dataset_dict = dict()
         # Add data variables as assets
@@ -717,7 +717,10 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         itemdict["levels"] = [
             dict(
                 name=item_id,
-                time=copy(store_dataset_dict),
+                time=dict(
+                    store=defaults["EERIE_CLOUD_URL"] + "/",
+                    dataset=item_id + "/zarr",
+                    ),
                 grid=griddict,
                 datasources=var_store_dataset_dict,
             )
