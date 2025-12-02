@@ -12,6 +12,7 @@ from copy import deepcopy as copy
 import cachey
 from pystac import Item, Asset, MediaType
 from datetime import datetime
+import gribscan
 import pystac
 import fsspec
 import requests
@@ -686,6 +687,9 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
         #    for var_name, var_data in ds.data_vars.items():
         for var_name, var_data in ds.variables.items():
             var_store_dataset_dict[var_name] = copy(store_dataset_dict)
+            compressor = ds[var_name].encoding.get("compressor")
+            if compressor and isinstance(compressor, gribscan.rawgribcodec.RawGribCodec):
+                var_store_dataset_dict[var_name]["dataset"]=item_id+"/zarr"
 
         best_choice = next(
             (

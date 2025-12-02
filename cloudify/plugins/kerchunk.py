@@ -75,14 +75,12 @@ def create_response_for_zmetadata(zm, key):
     zmetadata["zarr_consolidated_format"] = 1
     if key == ".zgroup":
         jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
-    elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
-        if zmetadata["metadata"].get(key):
-            cleaned = clean_json(zmetadata["metadata"][key])
-            jsondump = json.dumps(cleaned) #.encode("utf-8")
+    else:
+        jsondump = zmetadata["metadata"].get(key)
+        if jsondump:
+            jsondump = json.dumps(jsondump)
         else:
             raise HTTPException(status_code=404, detail=f"{key} not found")
-    else:
-        jsondump = json.dumps(zmetadata) #.encode("utf-8")
 
     return Response(jsondump, media_type="application/json")
     
@@ -91,6 +89,7 @@ async def get_zarr_config_response_async(dataset, DATASET_ID_ATTR_KEY, key, cach
     resp = cache.get(cache_key)
     if resp is None:
         zm = await fsmap.asyncitem(".zmetadata")
+        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)
     return resp
@@ -100,6 +99,7 @@ def get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     resp = cache.get(cache_key)
     if resp is None:
         zm = fsmap[".zmetadata"]
+        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)        
     return resp
