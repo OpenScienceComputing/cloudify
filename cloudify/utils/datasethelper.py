@@ -249,6 +249,7 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
     ds = xr.open_dataset(
             mapper,
             engine="zarr",
+           # create_default_indexes=False,
             **kwargs
             )
 
@@ -394,16 +395,18 @@ def apply_lossy_compression(
     """
     
     se=ds.encoding.get("source")
-    if L_DASK:    
-        ds=xr.apply_ufunc(
-                lossy_compress_chunk,
-                ds,
-                dask="parallelized",
-                keep_attrs="drop_conflicts"
-                )
-    else:
-        for var in ds.data_vars:
-            ds[var].encoding["filters"]=numcodecs.BitRound(keepbits=12)            
+#    if L_DASK:    
+#        ds=xr.apply_ufunc(
+#                lossy_compress_chunk,
+#                ds,
+#                dask="parallelized",
+#                keep_attrs="drop_conflicts"
+#                )
+#    else:
+#        for var in ds.data_vars:
+#            ds[var].encoding["filters"]=numcodecs.BitRound(keepbits=12)            
+    for var in ds.data_vars:
+        ds[var].encoding["filters"]=[numcodecs.BitRound(keepbits=10)]
     ds.encoding["source"]=se         
     
     return ds
@@ -422,11 +425,9 @@ def set_compression(ds: xr.Dataset) -> xr.Dataset:
         xr.Dataset: Dataset with compression applied
     """
     for var in ds.data_vars:
-        ds[var].encoding = {
-            "compressor": numcodecs.Blosc(
+        ds[var].encoding["compressor"] = numcodecs.Blosc(
                 cname="lz4", clevel=5, shuffle=2
             )  # , blocksize=0),
-        }
     return ds
 
 
