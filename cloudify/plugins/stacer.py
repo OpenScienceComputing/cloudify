@@ -12,6 +12,7 @@ from copy import deepcopy as copy
 import cachey
 from pystac import Item, Asset, MediaType
 from datetime import datetime
+import gribscan
 import pystac
 import fsspec
 import requests
@@ -24,6 +25,7 @@ from cloudify.utils.defaults import *
 PARENT_CATALOG = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/catalogs/stac-catalog-eeriecloud.json"
 GRIDLOOK = "https://s3.eu-dkrz-1.dkrz.cloud/bm1344/gridlook/index.html"
 GRIDLOOK_HP = "https://gridlook.pages.dev/"
+GRIDLOOK = GRIDLOOK_HP
 JUPYTERLITE = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/jupyterlite/index.html"
 hostname = socket.gethostname()
 HOST = f"https://{hostname}"
@@ -677,10 +679,16 @@ def get_gridlook(itemdict: dict, ds: xr.Dataset, alternative_uri: str = None) ->
                 dataset=alternative_uri.split("/")[-1],
             )
         else:
-            store_dataset_dict = dict(
-                store=defaults["EERIE_CLOUD_URL"] + "/",
-                dataset=item_id + "/kerchunk",
-            )
+            if any(ds[a].attrs.get("original_compressor") for a in ds.data_vars):
+                store_dataset_dict = dict(
+                    store=defaults["EERIE_CLOUD_URL"] + "/",
+                    dataset=item_id + "/zarr",
+                )                
+            else:
+                store_dataset_dict = dict(
+                    store=defaults["EERIE_CLOUD_URL"] + "/",
+                    dataset=item_id + "/kerchunk",
+                )
         var_store_dataset_dict = dict()
         # Add data variables as assets
         #    for var_name, var_data in ds.data_vars.items():

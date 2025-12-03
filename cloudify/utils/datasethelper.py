@@ -354,6 +354,7 @@ def gribscan_to_float(ds: xr.Dataset) -> xr.Dataset:
     for dv in ds.data_vars:
         compressor = ds[dv].encoding.get("compressor")
         if compressor and isinstance(compressor, gribscan.rawgribcodec.RawGribCodec):
+            ds[dv].attrs["original_compressor"]="gribscan"
             if ds[dv].encoding["dtype"] == np.float64:
                 ds[dv] = ds[dv].astype("float32")
     

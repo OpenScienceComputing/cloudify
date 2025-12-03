@@ -13,6 +13,7 @@ import xarray as xr
 import gc
 import json
 import numpy as np
+from pandas import isna as pdisna
 
 from xpublish import Plugin, hookimpl, Dependencies
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
@@ -63,7 +64,7 @@ def clean_json(obj: Any) -> Any:
         return {
             k: clean_json(v)
             for k, v in obj.items()
-            if v is not None and v is not np.nan
+            if not pdisna(v)
         }
     elif isinstance(obj, list):
         return [clean_json(v) for v in obj]
@@ -75,14 +76,14 @@ def create_response_for_zmetadata(zm, key):
     zmetadata["zarr_consolidated_format"] = 1
     if key == ".zgroup":
         jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
-    elif ".zarray" in key or ".zgroup" in key or ".zattrs" in key:
-        if zmetadata["metadata"].get(key):
-            cleaned = clean_json(zmetadata["metadata"][key])
-            jsondump = json.dumps(cleaned) #.encode("utf-8")
+    elif key == ".zmetadata":
+        jsondump = json.dumps(zmetadata)
+    else:
+        jsondump = zmetadata["metadata"].get(key)
+        if jsondump:
+            jsondump = json.dumps(jsondump)
         else:
             raise HTTPException(status_code=404, detail=f"{key} not found")
-    else:
-        jsondump = json.dumps(zmetadata) #.encode("utf-8")
 
     return Response(jsondump, media_type="application/json")
     
@@ -91,6 +92,7 @@ async def get_zarr_config_response_async(dataset, DATASET_ID_ATTR_KEY, key, cach
     resp = cache.get(cache_key)
     if resp is None:
         zm = await fsmap.asyncitem(".zmetadata")
+        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)
     return resp
@@ -100,6 +102,7 @@ def get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     resp = cache.get(cache_key)
     if resp is None:
         zm = fsmap[".zmetadata"]
+        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)        
     return resp
