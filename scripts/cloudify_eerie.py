@@ -39,7 +39,7 @@ def get_dsone(
     Returns:
         Optional[xr.Dataset]: Coordinate dataset or None if not found
     """
-    for dsname in ["2d_monthly_mean", "monthly_node", "2D_monthly_avg"]:
+    for dsname in ["2d_monthly_mean", "node_grid", "2D_monthly_avg", "2D_monthly","2D_24h"]:
         try:
             dscoords = (
                 cat[f"model-output.{model}.{realm}.native.{dsname}"](chunks=None)
@@ -47,9 +47,12 @@ def get_dsone(
                 .reset_coords()[coords]
                 .chunk()
             )
+            if "grid_center_lat" in dscoords:
+                dscoords = dscoords.rename(dict(grid_center_lat="lat",grid_center_lon="lon"))
             return dscoords
         except Exception as e:
-            print(f"Failed to load coordinates for {model}.{realm}: {str(e)}")
+            pass            
+    print(f"Failed to load coordinates for {model}.{realm}")
     return None
 
 
@@ -110,11 +113,17 @@ def add_eerie(
                 cat,
                 "ifs-fesom2-sr.eerie-spinup-1950.v20240304",
                 "ocean",
-                ["lat", "lon", "coast"],
+                ["grid_center_lat", "grid_center_lon", "coast"],
             ),
             "ifs-amip-tco1279_atmos": get_dsone(
                 cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
             ),
+            "ifs-amip-tco399_atmos": get_dsone(
+                cat, "ifs-amip-tco399.hist.v20240901", "atmos", ["lat", "lon"]
+            ),
+            "ifs-amip-tco2559_atmos": get_dsone(
+                cat, "ifs-amip-tco2559.hist.v20250101", "atmos", ["lat", "lon"]
+            ),            
         }
 
     # Find datasets to process
@@ -124,9 +133,7 @@ def add_eerie(
             hostids += [
                     a
                     for a in find_data_sources(cat["model-output"][source])
-                    if not any(b in a for b in ["v2023", "3d_grid"]) and not (
-                        "spinup" in a and "fesom" in a
-                    ) 
+                    if not any(b in a for b in ["v2023", "3d_grid"]) and not "spinup" in a
                         #"icon-esm-er.hist-1950.v20240618.atmos.native.2d_daily_mean" in a or
                         #("ifs-amip-tco1279" in a and "hist" in a)
                     #)
@@ -138,7 +145,7 @@ def add_eerie(
         cat["model-output"],
         hostids,
         whitelist_paths=["bm1344", "bm1235", "bk1377"],
-        storage_chunk_patterns=["native", "grid", "healpix", ".mon"],
+        storage_chunk_patterns=["grid", "healpix", ".mon"],
         drop_vars=dict(
             native=["lat", "lon", "cell_sea_land_mask"],
             healpix=["lat", "lon"]
@@ -172,14 +179,15 @@ def add_eerie(
                     ),
                     "nothing_found"
                 )
-            if dsone and not "elem" in dsid:
-                try:
-                    for dv in dsone.variables.keys():
-                        ds.coords[dv] = dsone[dv]
-                except:
-                    print(f"Couldnt set coordinates for {dsid}")
-            else:
-                print(f"Couldnt find coords for {dsid}")
+                if dsone and not "elem" in dsid:
+                    print("Start setting grid")
+                    try:
+                        for dv in dsone.variables.keys():
+                            ds.coords[dv] = dsone[dv]
+                    except:
+                        print(f"Couldnt set coordinates for {dsid}")
+                else:
+                    print(f"Couldnt find coords for {dsid}")
         if "d" in ds.data_vars:
             ds = ds.rename(d="testd")
 
@@ -199,11 +207,13 @@ def add_eerie(
             ds = gribscan_to_float(ds)
 
         # lossy has to come first!
+            print("Start lossy")
+            ds = ds.drop_encoding()
+            
             if not "grid" in dsid:
                 if "native" in dsid or "_11" in dsid or "_10" in dsid:
                     ds = apply_lossy_compression(ds, l_dask)
 
-            ds = ds.drop_encoding()
             ds.encoding["source"]=urlpath
 
         #mapper_dict, ds = reset_encoding_get_mapper(
