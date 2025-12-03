@@ -23,6 +23,9 @@ from ...utils.zarr import (
     jsonify_zmetadata,
 )
 from .. import Dependencies, Plugin, hookimpl
+import dask.array
+DaskArrayType = (dask.array.Array,)
+from numpy import ndarray as npnd
 
 logger = logging.getLogger('zarr_api')
 
@@ -143,13 +146,20 @@ class ZarrPlugin(Plugin):
                         da,
                         chunk,
                         out_shape=arr_meta['chunks'],
-                        )
-                
-                echunk = encode_chunk(
-                        data_chunk.tobytes(),
                         filters=arr_meta['filters'],
-                        compressor=arr_meta['compressor'],
+                        compressor=arr_meta['compressor'],                        
                         )
+                if not isinstance(da, DaskArrayType): 
+                    echunk = encode_chunk(
+                            data_chunk,
+                            filters=arr_meta['filters'],
+                            compressor=arr_meta['compressor']                            
+                            )
+                else:
+                    echunk = data_chunk
+
+                if isinstance(data_chunk,npnd):
+                    echunk = data_chunk.tobytes()
                 
                 response = Response(
                         echunk,

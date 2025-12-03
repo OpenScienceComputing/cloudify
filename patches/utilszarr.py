@@ -168,12 +168,18 @@ def jsonify_zmetadata(
 
     for key in list(dataset.variables):
         # convert compressor to dict
-        compressor = zjson['metadata'][f'{key}/{array_meta_key}']['compressor']
+        compressor = zjson['metadata'][f'{key}/{array_meta_key}'].get('compressor')
         if compressor is not None:
             compressor_config = zjson['metadata'][f'{key}/{array_meta_key}'][
                 'compressor'
             ].get_config()
             zjson['metadata'][f'{key}/{array_meta_key}']['compressor'] = compressor_config
+        zfilter = zjson['metadata'][f'{key}/{array_meta_key}'].get('filters')
+        if zfilter is not None and isinstance(zfilter,list):
+            zjson['metadata'][f'{key}/{array_meta_key}']['filters'] = [
+                    a.get_config()
+                    for a in zfilter
+                    ]
 
     return zjson
 
@@ -187,7 +193,7 @@ def encode_chunk(
     # apply filters
     if filters:
         for f in filters:
-            chunk = f.encode(chunk)
+            chunk = f.decode(f.encode(chunk))
 
     # check object encoding
     if ensure_ndarray(chunk).dtype == object:
@@ -195,11 +201,9 @@ def encode_chunk(
 
     # compress
     if compressor:
-        cdata = compressor.encode(chunk)
-    else:
-        cdata = chunk
+        chunk = compressor.encode(chunk)
 
-    return cdata
+    return chunk
 
 from dask.distributed import Client
 import os
@@ -227,6 +231,8 @@ def get_data_chunk(
     da: xr.DataArray,
     chunk_id: str,
     out_shape: tuple,
+    filters: Optional[list[Codec]] = None,
+    compressor: Optional[Codec] = None,    
 ) -> np.typing.ArrayLike:
     """Get one chunk of data from this DataArray (da).
 
@@ -235,6 +241,13 @@ def get_data_chunk(
     ikeys = tuple(map(int, chunk_id.split('.')))
     if isinstance(da, DaskArrayType):
         chunk_data_raw = da.blocks[ikeys].copy()
+        chunk_data_raw = chunk_data_raw.map_blocks(
+                encode_chunk,
+                dtype=chunk_data_raw.dtype,       # output dtype must be known
+                filters=filters,  # pass extra args here
+                compressor=compressor,
+                )
+        return  calc_chunk(client,chunk_data_raw)
     else:
         if da.ndim > 0 and ikeys != ((0,) * da.ndim):
             raise ValueError(
@@ -246,9 +259,6 @@ def get_data_chunk(
     logger.debug('checking chunk output size, %s == %s' % (chunk_data_raw.shape, out_shape))
 
     chunk_data=chunk_data_raw
-    if isinstance(chunk_data, DaskArrayType):
-#        chunk_data = asyncio.run(calc_chunk(client,chunk_data_raw))
-        chunk_data = calc_chunk(client,chunk_data_raw)
 
     # zarr expects full edge chunks, contents out of bounds for the array are undefined
     if chunk_data.shape != tuple(out_shape):
