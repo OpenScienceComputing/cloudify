@@ -13,6 +13,7 @@ import xarray as xr
 import gc
 import json
 import numpy as np
+from pandas import isna as pdisna
 
 from xpublish import Plugin, hookimpl, Dependencies
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
@@ -63,7 +64,7 @@ def clean_json(obj: Any) -> Any:
         return {
             k: clean_json(v)
             for k, v in obj.items()
-            if v is not None and v is not np.nan
+            if not pdisna(v)
         }
     elif isinstance(obj, list):
         return [clean_json(v) for v in obj]
@@ -75,6 +76,8 @@ def create_response_for_zmetadata(zm, key):
     zmetadata["zarr_consolidated_format"] = 1
     if key == ".zgroup":
         jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
+    elif key == ".zmetadata":
+        jsondump = json.dumps(zmetadata)
     else:
         jsondump = zmetadata["metadata"].get(key)
         if jsondump:
