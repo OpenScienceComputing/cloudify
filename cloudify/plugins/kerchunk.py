@@ -13,7 +13,7 @@ import xarray as xr
 import gc
 import json
 import numpy as np
-from pandas import isna as pdisna
+import math
 
 from xpublish import Plugin, hookimpl, Dependencies
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
@@ -46,37 +46,15 @@ def kerchunk_stream_content_safe_sync(
         # Let the outer logic raise 404 before returning a StreamingResponse
         raise
 
-        
-def clean_json(obj: Any) -> Any:
-    """
-    Clean JSON object by removing None and NaN values.
-
-    This function recursively cleans a JSON object by removing None values
-    and NaN values from dictionaries and lists.
-
-    Args:
-        obj: Input JSON object (dict, list, or primitive)
-
-    Returns:
-        Any: Cleaned JSON object with None and NaN values removed
-    """
-    if isinstance(obj, dict):
-        return {
-            k: clean_json(v)
-            for k, v in obj.items()
-            if not pdisna(v)
-        }
-    elif isinstance(obj, list):
-        return [clean_json(v) for v in obj]
-    else:
-        return obj
-
 def create_response_for_zmetadata(zm, key):
-    zmetadata = json.loads(zm.decode("utf-8"))
-    zmetadata["zarr_consolidated_format"] = 1
     if key == ".zgroup":
         jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
-    elif key == ".zmetadata":
+        return Response(jsondump, media_type="application/json")
+
+    zmetadata = json.loads(zm.decode("utf-8"))
+    zmetadata["zarr_consolidated_format"] = 1
+    zmetadata = sanitize_for_json(zmetadata)
+    if key == ".zmetadata":
         jsondump = json.dumps(zmetadata)
     else:
         jsondump = zmetadata["metadata"].get(key)
@@ -92,7 +70,6 @@ async def get_zarr_config_response_async(dataset, DATASET_ID_ATTR_KEY, key, cach
     resp = cache.get(cache_key)
     if resp is None:
         zm = await fsmap.asyncitem(".zmetadata")
-        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)
     return resp
@@ -102,7 +79,6 @@ def get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     resp = cache.get(cache_key)
     if resp is None:
         zm = fsmap[".zmetadata"]
-        zm = clean_json(zm)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)        
     return resp

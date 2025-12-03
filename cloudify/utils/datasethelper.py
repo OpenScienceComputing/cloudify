@@ -1,6 +1,7 @@
 import numcodecs
 import gribscan
 import numpy as np
+import math
 import intake
 import itertools
 import xarray as xr
@@ -88,11 +89,22 @@ def async_get_mapper(
     return AsyncFSMap(root, fs, check, create, missing_exceptions=missing_exceptions, **kwargs)    
     #return FSMap(root, fs, check, create, missing_exceptions=missing_exceptions)
 
+def is_nan(x):
+    return (
+        x is None or
+        (isinstance(x, float) and math.isnan(x)) or
+        x is np.nan
+    )
 
 def sanitize_for_json(obj):
     """Recursively convert zarr/numcodecs objects into JSON-safe dicts."""
     # Handle codec or filter objects
     if isinstance(obj, numcodecs.abc.Codec):
+        try:
+            compr_config=compressor.get_config()
+            return compr_config
+        except:
+            pass
         d = {"id": obj.codec_id}
         # Add common attributes if they exist
         for attr in ("cname", "clevel", "shuffle", "blocksize"):
@@ -101,15 +113,24 @@ def sanitize_for_json(obj):
         return d
 
     # Handle numpy dtypes and similar
-    import numpy as np
     if isinstance(obj, np.dtype):
         return str(obj)
 
     # Recursively sanitize dicts and lists
     if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
+        cleaned = {}
+        for k, v in obj.items():
+            cv = sanitize_for_json(v)
+            if not is_nan(cv):
+                cleaned[k] = cv
+        return cleaned        
     if isinstance(obj, (list, tuple)):
-        return [sanitize_for_json(v) for v in obj]
+        cleaned_list = []
+        for v in obj:
+            cv = sanitize_for_json(v)
+            if not is_nan(cv):
+                cleaned_list.append(cv)
+        return cleaned_list    
     return obj
 
 
