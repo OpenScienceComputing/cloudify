@@ -120,9 +120,13 @@ def sanitize_for_json(obj):
     if isinstance(obj, dict):
         cleaned = {}
         for k, v in obj.items():
+            if k == "pr" or k == "pl":
+                continue
             cv = sanitize_for_json(v)
             if not is_nan(cv):
                 cleaned[k] = cv
+            else:
+                cleaned[k] = None
         return cleaned        
     if isinstance(obj, (list, tuple)):
         cleaned_list = []
@@ -270,10 +274,12 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
     ds = xr.open_dataset(
             mapper,
             engine="zarr",
-           # create_default_indexes=False,
+            create_default_indexes=False,
             **kwargs
             )
 
+    if "time" in ds:
+        ds["time"] = ds["time"].data.compute()
     return ds,asyncmapper
 
 def chunk_and_prepare_fesom(ds: xr.Dataset) -> xr.Dataset:
