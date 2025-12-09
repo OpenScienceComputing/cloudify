@@ -3,10 +3,104 @@ import pandas as pd
 import glob
 from xpublish import Plugin, hookimpl, Dependencies
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Sequence
 import io
 from bokeh.models.widgets.tables import HTMLTemplateFormatter
+import re
+import time
+from collections import defaultdict
+
+LOG_PATH = "/var/log/nginx/access.log"
+LOG_PATH = "/tmp/nginx_access.log"
+WINDOW_SECONDS = 3600  # last hour
+
+log_re = re.compile(
+    r'(?P<ip>\S+) - - \[(?P<date>[^\]]+)] '
+    r'"GET (?P<path>\S+) [^"]+" (?P<status>\d{3}) (?P<bytes>\d+)'
+)
+
+def parse_dataset(path: str) -> str:
+    parts = path.strip("/").split("/")
+    if len(parts) >= 2:
+        return parts[1]
+    return "unknown"
+
+
+def iter_reverse_lines(filename, chunk_size=4096):
+    """Yield lines from a file in reverse order (efficient)."""
+    with open(filename, "rb") as f:
+        f.seek(0, 2)
+        buffer = b""
+        pos = f.tell()
+
+        while pos > 0:
+            read_size = min(chunk_size, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size)
+            buffer = data + buffer
+            *lines, buffer = buffer.split(b"\n")
+            for line in reversed(lines):
+                yield line.decode("utf-8", "ignore")
+
+        if buffer:
+            yield buffer.decode("utf-8", "ignore")
+
+def get_stats():
+    now = time.time()
+    cutoff = now - WINDOW_SECONDS
+
+    total_bytes = 0
+    ips = set()
+    dataset_bytes = defaultdict(int)
+    dataset_reqs = defaultdict(int)
+
+    # Iterate *backwards* through the log so we can stop early
+    for line in iter_reverse_lines(LOG_PATH):
+
+        m = log_re.search(line)
+        if not m:
+            continue
+
+        # Filter by status == 200
+        status = int(m.group("status"))
+        if status != 200:
+            continue
+
+        # Parse Nginx timestamp: "09/Dec/2025:13:52:18 +0100"
+        raw_date = m.group("date")
+        # fast parsing of timestamp
+        ts = time.mktime(time.strptime(raw_date[:20], "%d/%b/%Y:%H:%M:%S"))
+
+        # Stop as soon as we leave the 1-hour window
+        if ts < cutoff:
+            break
+
+        path = m.group("path")
+        bytes_sent = int(m.group("bytes"))
+        ip = m.group("ip")
+        dataset = parse_dataset(path)
+
+        total_bytes += bytes_sent
+        ips.add(ip)
+        dataset_bytes[dataset] += bytes_sent
+        dataset_reqs[dataset] += 1
+
+    top_bytes = sorted(dataset_bytes.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_reqs = sorted(dataset_reqs.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    return {
+        "window_seconds": WINDOW_SECONDS,
+        "unique_ips": len(ips),
+        "total_GB": total_bytes / (1024**3),
+        "top10_datasets_by_bytes": [
+            {"dataset": d, "bytes": b} for d, b in top_bytes
+        ],
+        "top10_datasets_by_requests": [
+            {"dataset": d, "requests": r} for d, r in top_reqs
+        ],
+    }
 
 def summarize_overall(df: pd.DataFrame) -> pd.DataFrame:
     """Compute overall statistics from the summary DataFrame."""
@@ -91,86 +185,117 @@ class Stats(Plugin):
         """Register an application level router for app level stac catalog"""
         router = APIRouter(prefix=self.app_router_prefix, tags=self.app_router_tags)
 
-        @router.get("-summary", summary="Statistics over all datasets")
+        @router.get("-summary.html", summary="Statistics over all datasets")
         def get_summary(
             dataset_ids=Depends(deps.dataset_ids)
         ):
             dfs = []
-            for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
-                dfs.append(read_csv(dfsource))
-            df=pd.concat(dfs)
-            sumdf=summarize_overall(df)
-            html_bytes = create_tabulator_html(sumdf)
+            try:
+                for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
+                    dfs.append(read_csv(dfsource))
+                df=pd.concat(dfs)
+                sumdf=summarize_overall(df)
+                html_bytes = create_tabulator_html(sumdf)
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
             return StreamingResponse(html_bytes, media_type="text/html")
 
-        @router.get("-summary-csv", summary="Statistics over all datasets")
+        @router.get("-summary.csv", summary="Statistics over all datasets")
         def get_summary(
             dataset_ids=Depends(deps.dataset_ids)
         ):
             dfs = []
-            for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
-                dfs.append(read_csv(dfsource))
-            df=pd.concat(dfs)
-            sumdf=summarize_overall(df)
+            try:
+                for dfsource in sorted(glob.glob("/tmp/*datasets.csv")):
+                    dfs.append(read_csv(dfsource))
+                df=pd.concat(dfs)
+                sumdf=summarize_overall(df)
 
-            stream = io.StringIO()
-            df.to_csv(stream, index = False)
-            response = StreamingResponse(iter([stream.getvalue()]),
-                                 media_type="text/csv"
-                                )
-            response.headers["Content-Disposition"] = "attachment; filename=summary.csv"
+                stream = io.StringIO()
+                df.to_csv(stream, index = False)
+                response = StreamingResponse(iter([stream.getvalue()]),
+                                     media_type="text/csv"
+                                    )
+                response.headers["Content-Disposition"] = "attachment; filename=summary.csv"
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
+            
             return response            
 
-        @router.get("-summary-{project}", summary="Statistics over all datasets for a project")
+        @router.get("-summary-{project}.html", summary="Statistics over all datasets for a project")
         def get_summary_project(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"/tmp/{project}_datasets.csv")
+            try:
+                df = read_csv(f"/tmp/{project}_datasets.csv")
 
-            sumdf=summarize_overall(df)
-            html_bytes = create_tabulator_html(sumdf)
+                sumdf=summarize_overall(df)
+                html_bytes = create_tabulator_html(sumdf)
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
+            
             return StreamingResponse(html_bytes, media_type="text/html")
 
-        @router.get("-summary-{project}-csv", summary="Statistics over all datasets for a project as csv")
+        @router.get("-summary-{project}.csv", summary="Statistics over all datasets for a project as csv")
         def get_summary_project_csv(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"/tmp/{project}_datasets.csv")
+            try:
+                df = read_csv(f"/tmp/{project}_datasets.csv")
 
-            sumdf=summarize_overall(df)
+                sumdf=summarize_overall(df)
 
-            stream = io.StringIO()    
-            sumdf.to_csv(stream, index = False)    
-            response = StreamingResponse(
-                    iter([stream.getvalue()]),
-                    media_type="text/csv"
-                    )
-            response.headers["Content-Disposition"] = f"attachment; filename=summary-{project}.csv"  
+                stream = io.StringIO()    
+                sumdf.to_csv(stream, index = False)    
+                response = StreamingResponse(
+                        iter([stream.getvalue()]),
+                        media_type="text/csv"
+                        )
+                response.headers["Content-Disposition"] = f"attachment; filename=summary-{project}.csv"  
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
+            
             return response
 
-        @router.get("-{project}", summary="Statistics for a project")
+        @router.get("-{project}.html", summary="Statistics for a project")
         def get_project(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"/tmp/{project}_datasets.csv")
-            html_bytes = create_tabulator_html(df, l_explode=True)
+            try:
+                df = read_csv(f"/tmp/{project}_datasets.csv")
+                html_bytes = create_tabulator_html(df, l_explode=True)
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
+            
             return StreamingResponse(html_bytes, media_type="text/html")
         
-        return router
-
-        @router.get("-{project}-csv", summary="Statistics for a project")
+        @router.get("-{project}.csv", summary="Statistics for a project")
         def get_project_csv(
             project:str, dataset_ids=Depends(deps.dataset_ids)
         ):
-            df = read_csv(f"/tmp/{project}_datasets.csv")
-            stream = io.StringIO()
-            df.to_csv(stream, index = False)
-            response = StreamingResponse(
-                    iter([stream.getvalue()]),        
-                    media_type="text/csv"
-                    )
-            response.headers["Content-Disposition"] = f"attachment; filename={project}.csv"
-            return response            
+            try:
+                df = read_csv(f"/tmp/{project}_datasets.csv")
+                stream = io.StringIO()
+                df.to_csv(stream, index = False)
+                response = StreamingResponse(
+                        iter([stream.getvalue()]),        
+                        media_type="text/csv"
+                        )
+                response.headers["Content-Disposition"] = f"attachment; filename={project}.csv"
+            except:
+                return HTTPException(status_code=404, detail="Could not create table")
+            
+            return response           
+
+        @router.get("_nginx.json", summary="NGINX metrics")
+        def get_nginx():            
+            #try:
+            if True:
+                response = JSONResponse(get_stats())
+            #except:
+            #    return HTTPException(status_code=404, detail="Could not create table")
+
+            return response
 
         return router
 
