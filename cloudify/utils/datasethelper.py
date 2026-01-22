@@ -14,10 +14,9 @@ from fsspec.core import url_to_fs
 from fsspec.mapping import FSMap
 from fsspec.implementations.asyn_wrapper import AsyncFileSystemWrapper
 import asyncio
-from zarr.meta import encode_array_metadata
-from zarr.storage import MemoryStore
 import numcodecs
 import zarr
+from dask.array import Array as Daarray
 from pathlib import Path
 import json
 
@@ -137,15 +136,83 @@ def sanitize_for_json(obj):
         return cleaned_list    
     return obj
 
+async def extract_zarr_json_tree(store: zarr.storage.MemoryStore) -> dict:
+    """
+    Collect all zarr.json files into a tree dict.
+    """
+    tree = {}
 
-def consolidate_zmetadatas_for_tree(zmetadatas: dict[str, dict]) -> dict:
+    async for key in store.list():        
+        if key.endswith("zarr.json"):
+            path = key[:-10].strip("/")
+            node = tree
+            if path:
+                for part in path.split("/"):
+                    node = node.setdefault(part, {})
+            data = await store.get(key)
+            data = data.to_bytes()   # convert to bytes
+            node["zarr.json"] = json.loads(data.decode())
+
+    return tree
+
+async def consolidate_zmetadatas_for_tree(zmetadatas: dict[str, dict]) -> dict:
+    """
+    Build a Zarr v3 hierarchy from array metadata and return the zarr.json tree.
+
+    Each input entry is assumed to describe a single array.
+    """
+    store = zarr.storage.MemoryStore()
+
+    root = zarr.group(store=store, overwrite=True)
+
+    for root_name, meta in zmetadatas.items():
+        if "metadata" not in meta:
+            raise ValueError(f"{root_name} is not a valid metadata dict")
+
+        # Extract array metadata (former .zarray)
+        array_meta = None
+        attrs = {}
+
+        for key, value in meta["metadata"].items():
+            if key.endswith(".zarray"):
+                array_meta = value
+            elif key.endswith(".zattrs"):
+                attrs = value
+
+        if array_meta is None:
+            raise ValueError(f"{root_name} has no array metadata")
+
+        path = Path(root_name)
+
+        # Create intermediate groups
+        grp = root
+        for part in path.parts[:-1]:
+            grp = grp.require_group(part)
+
+        # Create array (metadata written automatically)
+        arr = grp.create_array(
+            path.parts[-1],
+            shape=tuple(array_meta["shape"]),
+            dtype=array_meta["dtype"],
+            chunks=array_meta.get("chunks"),
+            fill_value=array_meta.get("fill_value"),
+            overwrite=True,
+        )
+
+        # Assign attributes
+        arr.attrs.update(attrs)
+
+    # Extract zarr.json tree
+    return await extract_zarr_json_tree(store)
+
+def consolidate_zmetadatas_for_tree_v2(zmetadatas: dict[str, dict]) -> dict:
     """
     Consolidate multiple single-group zmetadata dicts into one higher-level hierarchy.
     
     Assumes each zmetadata contains only one group (no nested subgroups inside).
     Creates intermediate subgroups for all keys based on '/'.
     """
-    store = MemoryStore()
+    store = zarr.storage.MemoryStore()
 
     for root_name, zmeta in zmetadatas.items():
         if "metadata" not in zmeta:
@@ -260,26 +327,44 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
     use_options = copy(STORAGE_OPTIONS)
     if storage_options:
         use_options.update(storage_options)
-    if not use_options.get("remote_protocol") and uri.startswith("reference"):
-        use_options["remote_protocol"] = "file"
-        print(use_options)
-    #use_options["remote_options"]=dict(asyncronous=True)
+    if uri.startswith("reference"):
+        if not use_options.get("remote_protocol"):
+            use_options["remote_protocol"] = "file"
+        # this is set by zarr v3 in the xarray: use_options["asynchronous"]=True
+        # which is why we need it for the mapper and the following:            
+        elif use_options.get("remote_protocol").startswith("http"):
+            if use_options.get("remote_options"):
+                use_options["remote_options"]["asynchronous"]=True
+                use_options["remote_options"]["loop"]=None
+            else:
+                use_options["remote_options"]=dict(asynchronous=True,loop=None)
+            
+    use_options["asynchronous"]=True
+    use_options["loop"]=None
     mapper = fsspec.get_mapper(uri, **use_options)
-    #use_options["asyncronous"]=False
-    lp = asyncio.get_running_loop()
-    use_options["loop"]=lp
-    use_options["remote_options"]=dict(loop=lp)
-    asyncmapper = async_get_mapper(uri, **use_options)    
-
     ds = xr.open_dataset(
             mapper,
+            #uri,
+            #storage_options=use_options,
             engine="zarr",
             create_default_indexes=False,
             **kwargs
             )
-
     if "time" in ds:
-        ds["time"] = ds["time"].data.compute()
+        if isinstance(ds["time"].data, Daarray):
+            ds["time"] = ds["time"].data.compute()   
+            
+    use_options["asynchronous"]=False
+    lp = asyncio.get_running_loop()
+    use_options["loop"]=lp
+    if uri.startswith("reference"):    
+        if not use_options.get("remote_options"):
+            use_options["remote_options"]=dict(loop=lp)
+        else:
+            use_options["remote_options"]["loop"]=lp
+        use_options["remote_options"]["asynchronous"]=False        
+    
+    asyncmapper = async_get_mapper(uri, **use_options)                
     return ds,asyncmapper
 
 def chunk_and_prepare_fesom(ds: xr.Dataset) -> xr.Dataset:
@@ -434,7 +519,8 @@ def apply_lossy_compression(
 #        for var in ds.data_vars:
 #            ds[var].encoding["filters"]=numcodecs.BitRound(keepbits=12)            
     for var in ds.data_vars:
-        ds[var].encoding["filters"]=[numcodecs.BitRound(keepbits=10)]
+        if isinstance(ds[var].data, Daarray):
+            ds[var].encoding["filters"]=[numcodecs.BitRound(keepbits=10)]
     ds.encoding["source"]=se         
     
     return ds
@@ -452,10 +538,13 @@ def set_compression(ds: xr.Dataset) -> xr.Dataset:
     Returns:
         xr.Dataset: Dataset with compression applied
     """
-    for var in ds.data_vars:
-        ds[var].encoding["compressor"] = numcodecs.Blosc(
-                cname="lz4", clevel=5, shuffle=2
-            )  # , blocksize=0),
+    for var in ds.variables:
+        if isinstance(ds[var].data, Daarray):
+            ds[var].encoding["compressor"] = numcodecs.Blosc(
+                    cname="lz4", clevel=5, shuffle=2
+                )  # , blocksize=0),
+        else:
+            ds[var].encoding["compressor"] = None
     return ds
 
 
@@ -481,6 +570,23 @@ def get_combination_list(ups: dict) -> list[dict]:
     combinations = list(itertools.product(*uplists))
     return [{ups[i]["name"]: comb[i] for i in range(len(ups))} for comb in combinations]
 
+def dotted_get(cat, key):
+    parts = key.split(".")
+    testcat = cat
+    realp = ""
+    for p in parts:
+        if not realp:
+            realp = p
+        else:
+            realp = realp + "." + p
+        if realp in testcat.entries:
+            if p != parts[-1]:
+                testcat = testcat[realp].read()
+                realp = ""
+            else:
+                return testcat[realp]
+
+    raise ValueError(f"Could not find '{realp}' in catalog")
 
 def find_data_sources(
     catalog: intake.Catalog, name: str = None
@@ -516,6 +622,21 @@ def find_data_sources(
     
     return data_sources
 
+def find_data_sources_v2(
+    catalog: intake.Catalog, name: str = None
+) -> list[str]:
+
+    data_sources = []
+
+    for key in catalog.entries:
+        entry = catalog[key]
+        newname='.'.join([name,key])
+        if isinstance(entry, intake.readers.readers.XArrayDatasetReader):
+            data_sources.append(newname)
+        elif isinstance(entry, intake.readers.readers.YAMLCatalogReader):
+            data_sources.extend(find_data_sources_v2(entry.read(), newname))
+
+    return data_sources
 
 def get_dataset_dict_from_intake(
     cat,
@@ -557,7 +678,8 @@ def get_dataset_dict_from_intake(
     mapper_dict = {}
     for dsname in dsnames:
         print(dsname)
-        desc = cat[dsname].describe()
+        desc = dotted_get(cat,dsname).to_dict()
+        kwargs = desc.get("kwargs")
         ups = desc.get("user_parameters")
         if allowed_ups:
             for upuser, upvals in allowed_ups.items():
@@ -565,8 +687,8 @@ def get_dataset_dict_from_intake(
                     if up["name"] == upuser:
                         ups[idx]["allowed"] = upvals
         md = desc.get("metadata")
-        args = desc.get("args")
-        urlpath = cat[dsname].urlpath #args.get("urlpath")
+        args = kwargs.get("args")[0]
+        urlpath = args.get("url")
         if type(urlpath) == list:
             urlpath = urlpath[0]
         if whitelist_paths:
@@ -576,8 +698,10 @@ def get_dataset_dict_from_intake(
                 continue
         dictname = dsname if not prefix else prefix + dsname
 
-        upnames = [a["name"] for a in ups]
-        comb = {}
+        upnames = []
+        if ups:
+            upnames = [a["name"] for a in ups]
+        comb = {"zarr_format":kwargs.get("zarr_format")}
         if args.get("storage_options"):
             comb["storage_options"]=args.get("storage_options")
             if not comb["storage_options"].get("cache_size"):
@@ -588,8 +712,8 @@ def get_dataset_dict_from_intake(
             if storage_chunk_patterns:
                 if any(b in dsname for b in storage_chunk_patterns):
                     comb["chunks"] = {}
-            elif args.get("chunks"):
-                comb["chunks"] = args.get("chunks")
+            elif kwargs.get("chunks"):
+                comb["chunks"] = kwargs.get("chunks")
             if comb.get("chunks","notset") == "notset":
                 comb["chunks"] = "auto"
         if drop_vars and not urlpath.endswith(".nc"):  # not possible for nc sources
@@ -610,7 +734,7 @@ def get_dataset_dict_from_intake(
                 if l_dask:
                     comb["chunks"] = {}
 #                comb.update(combl)
-                urlpath=cat[dsname](**combl).urlpath
+                urlpath=dotted_get(cat,dsname)(**combl).urlpath
                 if urlpath.startswith("reference"):
                     comb["consolidated"]=False
                 elif args.get("consolidated"):
@@ -649,6 +773,8 @@ def get_dataset_dict_from_intake(
                     comb["consolidated"]=False
                 elif args.get("consolidated"):
                     comb["consolidated"]=args.get("consolidated")
+                print(urlpath)
+                print(comb)
                 ds,mapper = open_zarr_and_mapper(urlpath, **comb)                
 #                ds = cat[dsname](**comb).to_dask()
                 if mdupdate:
