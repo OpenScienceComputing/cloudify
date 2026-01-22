@@ -37,7 +37,7 @@ def add_era5(
         ValueError: If required source catalog is not accessible
     """
     # ERA5 catalog path
-    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new.yaml"
+    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new2.yaml"
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -47,15 +47,17 @@ def add_era5(
     if l_dask:
         dsone = (
             cat["surface_analysis_monthly"](chunks=None)
-            .to_dask()
+            .read()
             .reset_coords()[["lat", "lon"]]
         )
         print(dsone)
         dsone = dsone.chunk()
     dsnames = []
-    for mdsid in list(cat):
+    for mdsid in list(cat.entries):
         # Skip hourly datasets that are not surface data
         if "hourly" in mdsid and "surface" not in mdsid:
+            continue
+        if "parquet" in mdsid:
             continue
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)

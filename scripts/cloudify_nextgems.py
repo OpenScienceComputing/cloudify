@@ -107,6 +107,7 @@ def add_nextgems(
     """
     # NEXTGEMS catalog paths
     source_catalog = "/work/bm1344/DKRZ/intake_catalogues_nextgems/catalog.yaml"
+    source_catalog = "/work/bm1344/DKRZ/intake_catalogues_nextgems/IFS/main2.yaml"
     published_catalog = "https://www.wdc-climate.de/ui/cerarest/addinfoDownload/nextGEMS_prod_addinfov1/nextGEMS_prod.yaml"
     
     # Define datasets to process
@@ -116,8 +117,10 @@ def add_nextgems(
         #"IFS.IFS_2.8-FESOM_5-production.3D_hourly_healpix128"
     ]  # "IFS.IFS_9-FESOM_5-production.2D_hourly_healpix512"]
     DS_ADD_SIM = [
-        "IFS.IFS_2.8-FESOM_5-production-parq",
-        "IFS.IFS_2.8-FESOM_5-production-deep-off-parq",
+        "IFS_2.8-FESOM_5-production-parq",
+        "IFS_2.8-FESOM_5-production-deep-off-parq",
+        #"IFS.IFS_2.8-FESOM_5-production-parq",
+        #"IFS.IFS_2.8-FESOM_5-production-deep-off-parq",
     ]
 
     try:
@@ -126,16 +129,17 @@ def add_nextgems(
         raise ValueError(f"Failed to open NEXTGEMS catalog: {str(e)}")
 
     try:
-        prodcat = intake.open_catalog(published_catalog)
-        ngc4_md = yaml.safe_load(prodcat.yaml())["sources"]["nextGEMS_prod"]["metadata"]
+    #if True:
+        #prodcat = intake.open_catalog(published_catalog)
+        ngc4_md = yaml.safe_load(fsspec.open(published_catalog).open())["metadata"]
     except Exception as e:
         print(f"Warning: Failed to load catalogs: {str(e)}")
         ngc4_md = None
 
     if l_dask:
         gr_025 = (
-            ngccat["IFS.IFS_2.8-FESOM_5-production-parq"]["2D_monthly_0.25deg"](chunks=None)
-            .to_dask()
+            ngccat["IFS_2.8-FESOM_5-production-parq"].read()["2D_monthly_0.25deg"](consolidated=False, chunks=None)
+            .read()
             .reset_coords()[["lat", "lon"]]
             .chunk()
         )
@@ -143,7 +147,7 @@ def add_nextgems(
     # Build list of all datasets to process
     all_ds = copy(DS_ADD)
     for sim in DS_ADD_SIM:
-        for dsn in list(ngccat[sim]):
+        for dsn in [a for a in ngccat[sim].read().entries if not "parquet" in a]:
             all_ds.append(sim + "." + dsn)
 
     # Get dataset descriptions
@@ -166,12 +170,12 @@ def add_nextgems(
         iakey = iakey.replace('IFS.IFS','IFS')
         localdsdict[iakey] = localdsdict.pop(dsn)
 
-        try:
-            descdict[iakey] = ngccat[desckey].describe()
-        except:
-            descdict[iakey] = ngccat[".".join(desckey.split(".")[:-1])].describe()
-        if "ngc4008" in dsn or "IFS_9-FESOM_5-production" in dsn:
-            descdict[iakey]["metadata"] = ngc4_md
+        #try:
+        #    descdict[iakey] = ngccat[desckey].describe()
+        #except:
+        #    descdict[iakey] = ngccat[".".join(desckey.split(".")[:-1])].describe()
+        #if "ngc4008" in dsn or "IFS_9-FESOM_5-production" in dsn:
+        #    descdict[iakey]["metadata"] = ngc4_md
 
     df=build_summary_df(localdsdict)
     df.to_csv("/tmp/nextgems_datasets.csv")
@@ -184,9 +188,9 @@ def add_nextgems(
         urlpath = ds.encoding.get("source")        
         mapper_dict[urlpath]=tempmapdict.pop(urlpath)
 
-        for mdk, mdv in descdict[ia].get("metadata", {}).items():
-            if mdk not in ds.attrs:
-                ds.attrs[mdk] = mdv
+        #for mdk, mdv in descdict[ia].get("metadata", {}).items():
+        #    if mdk not in ds.attrs:
+        #        ds.attrs[mdk] = mdv
 
         if l_dask:
             ds = ds.drop_encoding()

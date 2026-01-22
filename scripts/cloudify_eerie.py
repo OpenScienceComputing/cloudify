@@ -2,13 +2,14 @@ import intake
 from typing import Dict, Any, List, Optional
 from cloudify.utils.datasethelper import (
     get_dataset_dict_from_intake,
-    find_data_sources,
+    find_data_sources_v2,
     reset_encoding_get_mapper,
     adapt_for_zarr_plugin_and_stac,
     apply_lossy_compression,
     set_compression,
     set_or_delete_coords,
-    gribscan_to_float
+    gribscan_to_float,
+    dotted_get
 )
 import xarray as xr
 from cloudify.utils.statistics import (
@@ -40,18 +41,23 @@ def get_dsone(
         Optional[xr.Dataset]: Coordinate dataset or None if not found
     """
     for dsname in ["2d_monthly_mean", "node_grid", "2D_monthly_avg", "2D_monthly","2D_24h"]:
+        dscoords = None
         try:
+        #if True:
             dscoords = (
-                cat[f"model-output.{model}.{realm}.native.{dsname}"](chunks=None)
-                .to_dask()
+                dotted_get(cat,f"model-output.{model}.{realm}.native.{dsname}")(chunks=None)
+                .read()
                 .reset_coords()[coords]
                 .chunk()
             )
-            if "grid_center_lat" in dscoords:
-                dscoords = dscoords.rename(dict(grid_center_lat="lat",grid_center_lon="lon"))
-            return dscoords
         except Exception as e:
-            pass            
+            continue
+        if "grid_center_lat" in dscoords:
+            dscoords = dscoords.assign_coords(lat=("ncells", dscoords.grid_center_lat.values))
+            dscoords = dscoords.assign_coords(lon=("ncells", dscoords.grid_center_lon.values))
+            del dscoords["grid_center_lat"]
+            del dscoords["grid_center_lon"]
+        return dscoords
     print(f"Failed to load coordinates for {model}.{realm}")
     return None
 
@@ -78,7 +84,7 @@ def add_eerie(
         ValueError: If required source catalog is not accessible
     """
     # EERIE catalog path
-    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main.yaml"
+    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/main2.yaml"
     L_STATS = True
     try:
         cat = intake.open_catalog(source_catalog)
@@ -128,12 +134,12 @@ def add_eerie(
 
     # Find datasets to process
     hostids = []
-    for source in list(cat["model-output"]):
+    for source in cat["model-output"].read().entries:
         if source != "csv" and source != "esm-json":
             hostids += [
                     a
-                    for a in find_data_sources(cat["model-output"][source])
-                    if not any(b in a for b in ["v2023", "3d_grid"]) and not "spinup" in a
+                    for a in find_data_sources_v2(cat["model-output"].read()[source].read(),name=source)
+                    if not any(b in a for b in ["v2023", "3d_grid"]) and not "spinup" in a #and "ifs-amip" in a 
                         #"icon-esm-er.hist-1950.v20240618.atmos.native.2d_daily_mean" in a or
                         #("ifs-amip-tco1279" in a and "hist" in a)
                     #)
@@ -141,8 +147,9 @@ def add_eerie(
                 #and "icon-esm" in a and "hist-1950" in a
             ]
 
+    print(hostids)
     localmapperdict, localdsdict = get_dataset_dict_from_intake(
-        cat["model-output"],
+        cat["model-output"].read(),
         hostids,
         whitelist_paths=["bm1344", "bm1235", "bk1377"],
         storage_chunk_patterns=["grid", "healpix", ".mon"],
