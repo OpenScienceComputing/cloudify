@@ -1,6 +1,6 @@
 import asyncio
 from cloudify.plugins.stacer import *
-from cloudify.plugins.geoanimation import *
+#from cloudify.plugins.geoanimation import *
 from cloudify.utils.daskhelper import *
 from cloudify.plugins.dynamic_datasets import *
 from cloudify.plugins.kerchunk import *
@@ -11,8 +11,9 @@ from cloudify_dyamond import *
 from cloudify_era5 import *
 from cloudify_eerie import *
 from cloudify_nextgems import *
-from cloudify_orcestra import *
+from cloudify_orcestra2 import *
 from cloudify_cordexcmip6 import *
+from cloudify_epoc import *
 import xarray as xr
 from datetime import datetime
 from cloudify.utils.datasethelper import *
@@ -22,12 +23,9 @@ import xpublish as xp
 import fastapi
 import uvicorn
 from starlette.middleware.cors import CORSMiddleware
-import nest_asyncio
 from pathlib import Path
 from filelock import FileLock
 import shutil
-
-nest_asyncio.apply()
 
 os.environ["FORWARDED_ALLOW_IPS"] = "127.0.0.1"
 
@@ -36,6 +34,7 @@ TREE_DIR = Path("/tmp/tree.zarr")
 from intake.config import conf
 conf["cache_disabled"] = True
 L_DASK = True
+    
 # CATALOG_FILE="/work/bm1344/DKRZ/intake/dkrz_eerie_esm.yaml"
 # ADDRESS="tcp://127.0.0.1:42577"
 
@@ -69,17 +68,19 @@ app.add_middleware(
 )
 
 async def start_all_datasets():
+    global collection, L_DASK, kp, app
     await asyncio.sleep(0)
+        
     mapper_dict = {}    
     dsdict = {}    
-    global collection, L_DASK, kp, app
     L_NEXTGEMS = False #True
-    L_ORCESTRA = True #True #True
+    L_ORCESTRA = False #True #True
     L_COSMOREA = False #True #True
     L_ERA5 = False #True
     L_DYAMOND = False #True #True
     L_CORDEXCMIP6 = False
     L_EERIE = False# True #True
+    L_EPOC = True
     
     if L_COSMOREA:
         mapper_dict, dsdict = add_cosmorea(mapper_dict, dsdict, l_dask=L_DASK)
@@ -107,6 +108,10 @@ async def start_all_datasets():
         mapper_dict, dsdict = add_cordexcmip6(mapper_dict, dsdict, l_dask=L_DASK)
         print(f"After DYAMOND: {len(dsdict)}")
         print(f"After DYAMOND: {len(mapper_dict)}")        
+    if L_EPOC:
+        mapper_dict, dsdict = add_epoc(mapper_dict, dsdict, l_dask=L_DASK)
+        print(f"After EPOC: {len(dsdict)}")
+        print(f"After EPOC: {len(mapper_dict)}")        
     if L_EERIE:
         mapper_dict, dsdict = add_eerie(mapper_dict, dsdict, l_dask=L_DASK)
         len_dask=len(dsdict)
@@ -161,7 +166,7 @@ async def start_all_datasets():
                 #for k in dsdict.keys()
                 #if dsdict[k].encoding.get("source") in mapper_dict
             #})
-            merged = consolidate_zmetadatas_for_tree(merged_dict)
+            merged = await consolidate_zmetadatas_for_tree(merged_dict)
             print("Succesfully created tree")
             #dt[list(dsdict.keys())[0]+"/zarr"]=list(dsdict.values())[0]
             #dt.to_zarr(
@@ -188,8 +193,9 @@ async def start_all_datasets():
         print(k)
     #await set_custom_executor()
     if L_DASK:
-        from dask.distributed import Client                
+        from dask.distributed import Client   
         app.state.dask_client = Client(os.environ["ZARR_ADDRESS"])
+    
 
 app.add_event_handler("startup", start_all_datasets)
 
@@ -200,14 +206,16 @@ if __name__ == "__main__":  # This avoids infinite subprocess creation
         shutil.rmtree(TREE_DIR)
     
     if L_DASK : 
+    #app.state.dask_client = None
+    #if False :
         import dask
-        from dask.distributed import LocalCluster        
-
         dask.config.set({"array.slicing.split_large_chunks": False})
         dask.config.set({"array.chunk-size": "100 MB"})
         print("Start cluster")
-        #zarrcluster = get_dask_cluster()
-        zarrcluster = asyncio.get_event_loop().run_until_complete(get_dask_cluster())#localCluster(
+        from dask.distributed import LocalCluster                
+        zarrcluster = get_dask_cluster()
+
+        #zarrcluster = loop.run_until_complete(get_dask_cluster())#localCluster(
                 #processes=True,
                 #n_workers=4,
                 #threads_per_worker=16,
