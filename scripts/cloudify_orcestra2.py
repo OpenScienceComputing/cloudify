@@ -62,6 +62,7 @@ def add_orcestra(
     ]
     local_dsdict={}
     for ini in tqdm(init_dates_trunks):
+        print(ini)
         dsname = '.'.join(ini.split('/')[-1].split('.')[:-1])
         chunks="auto"
         if not l_dask:
@@ -71,7 +72,6 @@ def add_orcestra(
         )
         ds.attrs.update(conf_dict)
         ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
-        ds = set_compression(ds)
         ds.encoding["source"]=ini
         dsdict[dsname] = ds
         local_dsdict[dsname] = ds
