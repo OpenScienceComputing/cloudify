@@ -62,7 +62,7 @@ def add_era5(
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)
     tempdict,rawdsdict = get_dataset_dict_from_intake(
-        cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask, cache_size=0
+        cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask, cache_size=0, storage_chunk_patterns=["surface"]
     )
     df=build_summary_df(rawdsdict)
     df.to_csv("/tmp/era5_datasets.csv")
@@ -80,7 +80,7 @@ def add_era5(
             ds = ds.drop_encoding()
             for l in ["lat", "lon"]:
                 ds.coords[l] = dsone[l].copy()
-            ds = gribscan_to_float(ds)       
+            ds = gribscan_to_float(ds) 
             ds.encoding["source"]=urlpath
 
         # Prepare dataset for storage

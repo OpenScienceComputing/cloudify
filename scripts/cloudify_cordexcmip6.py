@@ -54,7 +54,8 @@ def add_cordexcmip6(
                 )
         print(dsname)
             #mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds, l_dask=l_dask)
-        ds = ds.drop_encoding()
+        if l_dask:
+            ds = ds.drop_encoding()
         ds = apply_lossy_compression(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
         ds = set_compression(ds)
