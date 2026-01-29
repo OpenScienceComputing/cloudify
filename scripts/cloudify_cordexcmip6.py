@@ -7,7 +7,7 @@ from cloudify.utils.datasethelper import (
     open_zarr_and_mapper,
     adapt_for_zarr_plugin_and_stac,
     set_compression,
-    
+    apply_lossy_compression    
 )
 from cloudify.utils.statistics import (
     build_summary_df,
@@ -54,12 +54,14 @@ def add_cordexcmip6(
                 )
         print(dsname)
             #mapper_dict, ds = reset_encoding_get_mapper(mapper_dict, dsname, ds, l_dask=l_dask)
+        if l_dask:
+            ds = ds.drop_encoding()
+        ds = apply_lossy_compression(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsname, ds)
         ds = set_compression(ds)
         ds.encoding["source"]="reference::/"+ini
         dsdict[dsname] = ds
         local_dsdict[dsname] = ds
-            
 
     df=build_summary_df(local_dsdict)
     df.to_csv("/tmp/cordexcmip6_datasets.csv")

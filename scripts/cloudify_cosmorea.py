@@ -1,11 +1,17 @@
 from typing import Dict, Any, Optional
-from cloudify.utils.datasethelper import reset_encoding_get_mapper, adapt_for_zarr_plugin_and_stac, open_zarr_and_mapper
+from cloudify.utils.datasethelper import (
+    reset_encoding_get_mapper, 
+    adapt_for_zarr_plugin_and_stac, 
+    open_zarr_and_mapper, 
+    set_compression,
+    apply_lossy_compression
+)
 import intake
 import xarray as xr
 from cloudify.utils.statistics import (
     build_summary_df,
     summarize_overall,
-    print_summary
+    print_summary    
 )
 
 def add_cosmorea(
@@ -32,6 +38,7 @@ def add_cosmorea(
     """
     # COSMO Reanalysis catalog URL
     source_catalog = "https://swift.dkrz.de/v1/dkrz_4236b71e-04df-456b-8a32-5d66641510f2/catalogs/cosmo-rea/main.yaml"
+    source_catalog = "/work/bm1344/DKRZ/git/cosmo-rea-kerchunks/main2.yaml"
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -40,8 +47,10 @@ def add_cosmorea(
     # Define dimensions and variables to process
     onedims = ["height", "rotated_latitude_longitude"]
     drop_vars = [
+        "b",
         "b_bnds",
         "lev_bnds",
+        "plev",
         "plev_bnds",
         "rlat_bnds",
         "rlon_bnds",
@@ -54,8 +63,8 @@ def add_cosmorea(
     if l_dask:
         try:
             dsone = (
-                cat["mon_atmos"](chunks=None)
-                .to_dask()
+                cat["1hrPt_atmos"](chunks=None)
+                .read()
                 .reset_coords()[["latitude", "longitude"]]
             )
             dsone = dsone.load()
@@ -64,19 +73,23 @@ def add_cosmorea(
 
     # Process each dataset in the catalog
     local_dsdict={}
-    for dsname in list(cat):
+    for dsname in [a for a in cat.entries if not "parquet" in a]:
         print(dsname)
         chunks="auto"
         if not l_dask:
             chunks=None
-        desc = cat[dsname].describe()
-        urlpath= cat[dsname](protocol="file").urlpath
-        desc["args"]["storage_options"]["remote_protocol"] = "file"
-        desc["args"]["storage_options"]["cache_size"]=0
+        desc = cat[dsname].to_dict()
+        kwargs = desc.get("kwargs")
+        args = kwargs.get("args")[0]
+        urlpath = args.get("url")[0]
+        storage_options = args.get("storage_options")
+        
+        storage_options["remote_protocol"] = "file"
+        storage_options["cache_size"]=0
         dsid = "cosmo-rea-" + dsname            
         ds, mapper = open_zarr_and_mapper(
                 urlpath,
-                storage_options=desc["args"]["storage_options"],
+                storage_options=storage_options,
                 drop_variables=drop_vars,
                 chunks=chunks,
                 consolidated=False
@@ -90,7 +103,9 @@ def add_cosmorea(
             ds = ds.drop_encoding()
         ds.encoding["source"]=urlpath
         mapper_dict[urlpath]=mapper        
+        ds = apply_lossy_compression(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
+        ds = set_compression(ds)        
         dsdict[dsid] = ds
         local_dsdict[dsid] = ds
         

@@ -1,22 +1,22 @@
 # requirements.txt
  aiohttp 
- cartopy # for geoanimation
- dask==2023.7.0
+ #cartopy # for geoanimation
+ dask #==2023.7.0
  distributed
  fastparquet # for intake accesss
  fsspec
  datashader # for geoanimation
- spatialpandas # for geoanimation, datashader
- geoviews # for geoanimation
+ #spatialpandas # for geoanimation, datashader
+ #geoviews # for geoanimation
  gribscan # for grib
- holoviews # for geoanimation
- hvplot # for geoanimation
- intake<2 # for intake access
- intake-xarray # for intake access
- nest_asyncio==1.5.8
- numpy<2 # for compression, compatibility with distributed
- panel # for geoanimation
- pydantic<2 # for intake access
+ #holoviews # for geoanimation
+ #hvplot # for geoanimation
+ intake #<2 # for intake access
+ #intake-xarray # for intake access
+ #nest_asyncio #==1.5.8
+ numpy #<2 # for compression, compatibility with distributed
+ panel # for geoanimation and statistics
+ pydantic #<2 # for intake access
  requests
  starlette
  tqdm
@@ -24,6 +24,6 @@
  xpublish
  pystac
  xpublish_intake
- fastapi==0.112.0
- zarr<3
- 
+ fastapi #==0.112.0
+ zarr #<3
+ filelock 

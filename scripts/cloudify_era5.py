@@ -37,7 +37,7 @@ def add_era5(
         ValueError: If required source catalog is not accessible
     """
     # ERA5 catalog path
-    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new.yaml"
+    source_catalog = "/work/bm1344/DKRZ/intake_catalogues/dkrz/disk/observations/ERA5/new2.yaml"
     try:
         cat = intake.open_catalog(source_catalog)
     except Exception as e:
@@ -47,20 +47,22 @@ def add_era5(
     if l_dask:
         dsone = (
             cat["surface_analysis_monthly"](chunks=None)
-            .to_dask()
+            .read()
             .reset_coords()[["lat", "lon"]]
         )
         print(dsone)
         dsone = dsone.chunk()
     dsnames = []
-    for mdsid in list(cat):
+    for mdsid in list(cat.entries):
         # Skip hourly datasets that are not surface data
         if "hourly" in mdsid and "surface" not in mdsid:
+            continue
+        if "parquet" in mdsid:
             continue
         print(f"Processing dataset: {mdsid}")
         dsnames.append(mdsid)
     tempdict,rawdsdict = get_dataset_dict_from_intake(
-        cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask, cache_size=0
+        cat, dsnames, drop_vars=["lat", "lon"], l_dask=l_dask, cache_size=0, storage_chunk_patterns=["surface"]
     )
     df=build_summary_df(rawdsdict)
     df.to_csv("/tmp/era5_datasets.csv")
@@ -78,7 +80,7 @@ def add_era5(
             ds = ds.drop_encoding()
             for l in ["lat", "lon"]:
                 ds.coords[l] = dsone[l].copy()
-            ds = gribscan_to_float(ds)       
+            ds = gribscan_to_float(ds) 
             ds.encoding["source"]=urlpath
 
         # Prepare dataset for storage

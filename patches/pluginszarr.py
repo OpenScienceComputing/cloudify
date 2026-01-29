@@ -1,6 +1,5 @@
 import logging
 from typing import Sequence
-import copy
 from datetime import datetime
 todaystring=datetime.today().strftime("%a, %d %b %Y %H:%M:%S GMT")
 
@@ -8,31 +7,33 @@ import cachey  # type: ignore
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from starlette.responses import Response  # type: ignore
-from zarr.storage import array_meta_key, attrs_key, group_meta_key  # type: ignore
 from numcodecs.abc import Codec
 
 from xpublish.utils.api import JSONResponse
 
-from ...dependencies import get_zmetadata, get_zvariables
 from ...utils.api import DATASET_ID_ATTR_KEY
 from ...utils.cache import CostTimer
 from ...utils.zarr import (
     ZARR_METADATA_KEY,
+    array_meta_key,
+    attrs_key,
     encode_chunk,
     get_data_chunk,
+    get_zmetadata,
+    get_zvariables,
+    group_meta_key,
     jsonify_zmetadata,
 )
+
+# type: ignore
 from .. import Dependencies, Plugin, hookimpl
-import dask.array
-DaskArrayType = (dask.array.Array,)
-from numpy import ndarray as npnd
 
 logger = logging.getLogger('zarr_api')
 
 def validate_dask_arrays(dataset):
     """Raise an error if any data variable is not a Dask array"""
     non_dask_vars = [
-        name for name, var in dataset.data_vars.items() 
+        name for name, var in dataset.data_vars.items()
         if var.chunks is None
     ]
     if non_dask_vars:
@@ -40,10 +41,9 @@ def validate_dask_arrays(dataset):
             status_code=400,
             detail=f"The following variables are not Dask arrays: {', '.join(non_dask_vars)}"
         )
-    
 
 class ZarrPlugin(Plugin):
-    """Adds Zarr-like accessing endpoints for datasets"""
+    """Adds Zarr-like accessing endpoints for datasets."""
 
     name: str = 'zarr'
 
@@ -51,19 +51,19 @@ class ZarrPlugin(Plugin):
     dataset_router_tags: Sequence[str] = ['zarr']
 
     @hookimpl
-    def dataset_router(self, deps: Dependencies) -> APIRouter:
+    def dataset_router(self, deps: Dependencies) -> APIRouter:  # noqa: D102
         router = APIRouter(
             prefix=self.dataset_router_prefix,
             tags=list(self.dataset_router_tags),
         )
 
-        @router.api_route(f'/{ZARR_METADATA_KEY}',methods=['GET', 'HEAD'])
+        @router.api_route(f'/{ZARR_METADATA_KEY}',methods=['GET', 'HEAD'])        
         def get_zarr_metadata(
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
-            validate_dask_arrays(dataset)
-            """Consolidated Zarr metadata"""
+            """Consolidated Zarr metadata."""
+            validate_dask_arrays(dataset)            
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
 
@@ -71,33 +71,33 @@ class ZarrPlugin(Plugin):
 
             return JSONResponse(zjson)
 
-        @router.api_route(f'/{group_meta_key}',methods=['GET', 'HEAD'])
+        @router.api_route(f'/{group_meta_key}',methods=['GET', 'HEAD'])        
         def get_zarr_group(
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
-            validate_dask_arrays(dataset)
-            """Zarr group data"""
+            """Zarr group data."""
+            validate_dask_arrays(dataset)            
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
 
             return JSONResponse(zmetadata['metadata'][group_meta_key])
 
-        @router.api_route(f'/{attrs_key}',methods=['GET', 'HEAD'])
+        @router.api_route(f'/{attrs_key}',methods=['GET', 'HEAD'])        
         def get_zarr_attrs(
             dataset=Depends(deps.dataset),
             cache=Depends(deps.cache),
         ) -> dict:
+            """Zarr attributes."""
             validate_dask_arrays(dataset)
-            """Zarr attributes"""
             zvariables = get_zvariables(dataset, cache)
             zmetadata = get_zmetadata(dataset, cache, zvariables)
 
             return JSONResponse(zmetadata['metadata'][attrs_key])
 
-        @router.api_route('/{var}/{chunk}',methods=['GET', 'HEAD'])
+        @router.api_route('/{var}/{chunk}',methods=['GET', 'HEAD'])        
         def get_variable_chunk(
-            request: Request,
+            request: Request,                
             var: str = Path(description='Variable in dataset'),
             chunk: str = Path(description='Zarr chunk'),
             dataset: xr.Dataset = Depends(deps.dataset),
@@ -108,23 +108,22 @@ class ZarrPlugin(Plugin):
             This will return cached responses when available.
 
             """
-            validate_dask_arrays(dataset)
-            app=request.app
-            zvariables = get_zvariables(dataset, cache)
-            zmetadata = get_zmetadata(dataset, cache, zvariables)
-
-            # First check that this request wasn't for variable metadata
             if var not in dataset.variables:
-                raise HTTPException(status_code=404, detail='Not in dataset')
+                raise HTTPException(status_code=404, detail='Not in dataset')            
+            validate_dask_arrays(dataset)
+            zvariables = get_zvariables(dataset, cache)
+            app=request.app
+            zmetadata = get_zmetadata(dataset, cache, zvariables)
+            # First check that this request wasn't for variable metadata
             if array_meta_key in chunk:
-                compressor=zmetadata['metadata'][f'{var}/{array_meta_key}'].get("compressor")
+                newzmeta=copy.deepcopy(zmetadata['metadata'][f'{var}/{array_meta_key}'])
+                newzmeta.pop("filters")
+                compressor=newzmeta.get("compressor")
                 if compressor and isinstance(compressor,Codec):
                     correct_comprdict=compressor.get_config()
-                    newzmeta=copy.deepcopy(zmetadata['metadata'][f'{var}/{array_meta_key}'])
-                    del newzmeta['compressor']                    
+                    del newzmeta['compressor']
                     newzmeta['compressor']=correct_comprdict
-                    return newzmeta
-                return zmetadata['metadata'][f'{var}/{array_meta_key}']
+                return newzmeta            
             elif attrs_key in chunk:
                 return JSONResponse(zmetadata['metadata'][f'{var}/{attrs_key}'])
             elif group_meta_key in chunk:
@@ -149,23 +148,21 @@ class ZarrPlugin(Plugin):
                         filters=arr_meta['filters'],
                         compressor=arr_meta['compressor'],                        
                         )
-                if not isinstance(da, DaskArrayType): 
-                    echunk = encode_chunk(
-                            data_chunk,
-                            filters=arr_meta['filters'],
-                            compressor=arr_meta['compressor']                            
-                            )
-                else:
-                    echunk = data_chunk
+                if not isinstance(data_chunk, bytes):
+                    data_chunk = data_chunk.tobytes()
 
-                if isinstance(data_chunk,npnd):
-                    echunk = data_chunk.tobytes()
-                
+                #Done by dask
+                #echunk = encode_chunk(
+                #        data_chunk,
+                #        filters=arr_meta['filters'],
+                #        compressor=arr_meta['compressor'],
+                #        )
+
                 response = Response(
-                        echunk,
+                        data_chunk,
                         media_type='application/octet-stream',
                         )
-                
+
                 response.headers["Cache-control"] = "max-age=3600"
                 response.headers["X-EERIE-Request-Id"] = "True"
                 response.headers["Last-Modified"] = datetime.today().strftime(
@@ -173,8 +170,7 @@ class ZarrPlugin(Plugin):
                         )
                 response.headers["Access-Control-Allow-Origin"] = "*"
                 response.headers["Access-Control-Allow-Methods"] = "POST,GET,HEAD"
-                response.headers["Access-Control-Allow-Headers"] = "*"                        
-                
+                response.headers["Access-Control-Allow-Headers"] = "*"
                     #cache.put(cache_key, response, ct.time, len(echunk))
 
                 return response
