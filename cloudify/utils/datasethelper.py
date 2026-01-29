@@ -18,6 +18,7 @@ from zarr.meta import encode_array_metadata
 from zarr.storage import MemoryStore
 import numcodecs
 import zarr
+from dask.array import Array as Daarray
 from pathlib import Path
 import json
 
@@ -278,8 +279,9 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
             **kwargs
             )
 
-    if "time" in ds:
-        ds["time"] = ds["time"].data.compute()
+    if "time" in ds :
+        if isinstance(ds["time"].data, Daarray):
+            ds["time"] = ds["time"].data.compute()
     return ds,asyncmapper
 
 def chunk_and_prepare_fesom(ds: xr.Dataset) -> xr.Dataset:

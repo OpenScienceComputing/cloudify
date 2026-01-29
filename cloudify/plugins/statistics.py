@@ -12,7 +12,7 @@ import time
 from collections import defaultdict
 
 LOG_PATH = "/var/log/nginx/access.log"
-LOG_PATH = "/tmp/nginx_access.log"
+#LOG_PATH = "/tmp/nginx_access.log"
 WINDOW_SECONDS = 3600  # last hour
 
 log_re = re.compile(

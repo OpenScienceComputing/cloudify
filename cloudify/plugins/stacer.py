@@ -652,15 +652,15 @@ def refine_for_eerie(item_id: str, griddict: dict) -> dict:
             griddict["dataset"] = "icon_grid_0033_R02B08_G.zarr"
         elif "ocean" in item_id:
             griddict["dataset"] = "icon_grid_0016_R02B09_O.zarr"
-    if "gr025" in item_id:
-        griddict[
-            "store"
-        ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
-        if "ifs-amip" in item_id or "ifs-fesom2" in item_id:
-            griddict["dataset"] = "gr025_descending.zarr"
-        else:
+    elif all(a in item_id for a in ["ifs-fesom", "native", "ocean"]):
+        griddict["dataset"]=griddict["dataset"].replace("/kerchunk","/zarr")
+    elif "gr025" in item_id:
+        if not "ifs" in item_id :
+            griddict["store"] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
             griddict["dataset"] = "gr025.zarr"
-    if "era5" in item_id:
+        else:
+            griddict["dataset"] = griddict["dataset"].replace("/kerchunk","/zarr")
+    elif "era5" in item_id:
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
