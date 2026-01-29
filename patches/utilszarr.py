@@ -232,11 +232,12 @@ def jsonify_zmetadata(
             ].get_config()
             zjson['metadata'][f'{key}/{array_meta_key}']['compressor'] = compressor_config
 
-        filters = zjson['metadata'][f'{key}/{array_meta_key}']['filters']
-        if filters is not None:
-            zjson['metadata'][f'{key}/{array_meta_key}']['filters'] = [
-                x.get_config() for x in filters
-            ]
+        zjson['metadata'][f'{key}/{array_meta_key}']["filters"]=None
+        #filters = zjson['metadata'][f'{key}/{array_meta_key}']['filters']
+        #if filters is not None:
+        #    zjson['metadata'][f'{key}/{array_meta_key}']['filters'] = [
+        #        x.get_config() for x in filters
+        #    ]
 
     return zjson
 
