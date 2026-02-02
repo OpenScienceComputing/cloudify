@@ -464,8 +464,11 @@ def gribscan_to_float(ds: xr.Dataset) -> xr.Dataset:
         raise ValueError("Input must be an xarray Dataset")
     
     for dv in ds.data_vars:
-        compressor = ds[dv].encoding.get("compressor")
-        if compressor and isinstance(compressor, gribscan.rawgribcodec.RawGribCodec):
+        compressors = ds[dv].encoding.get("compressors",[])
+        if any(
+                isinstance(compressor, gribscan.rawgribcodec.RawGribCodec)
+                for compressor in compressors
+                ):
             ds[dv].attrs["original_compressor"]="gribscan"
             if ds[dv].encoding["dtype"] == np.float64:
                 ds[dv] = ds[dv].astype("float32")
