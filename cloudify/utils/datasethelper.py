@@ -212,8 +212,10 @@ def consolidate_zmetadatas_for_tree_v2(zmetadatas: dict[str, dict]) -> dict:
     Assumes each zmetadata contains only one group (no nested subgroups inside).
     Creates intermediate subgroups for all keys based on '/'.
     """
-    store = zarr.storage.MemoryStore()
-
+    #store = zarr.storage.MemoryStore()
+    # Plain in-memory key-value store: path -> bytes
+    store: dict[str, bytes] = {}
+    
     for root_name, zmeta in zmetadatas.items():
         if "metadata" not in zmeta:
             raise ValueError(f"{root_name} is not a valid .zmetadata dict")
@@ -255,8 +257,20 @@ def consolidate_zmetadatas_for_tree_v2(zmetadatas: dict[str, dict]) -> dict:
     store[".zgroup"] = json.dumps({"zarr_format": 2}).encode()
 
     # Consolidate
-    zarr.consolidate_metadata(store)
-    return json.loads(store[".zmetadata"].decode())
+    #zarr.consolidate_metadata(store)
+    
+    # ---- Manual v2 consolidation ----
+    consolidated = {
+        "zarr_consolidated_format": 1,
+        "metadata": {}
+    }
+
+    for key, value in store.items():
+        if key.endswith((".zarray", ".zgroup", ".zattrs")):
+            consolidated["metadata"][key] = json.loads(value.decode("utf-8"))
+
+    return consolidated
+    #return json.loads(store[".zmetadata"].decode())
     
 def set_custom_header(response: fastapi.Response) -> None:
     response.headers["Cache-control"] = "max-age=3600"
@@ -351,7 +365,7 @@ def open_zarr_and_mapper(uri, storage_options=None,**kwargs):
             **kwargs
             )
     if "time" in ds:
-        if isinstance(ds["time"].data, Daarray):
+        if ds["time"].chunks is not None:
             ds["time"] = ds["time"].data.compute()   
             
     use_options["asynchronous"]=False
@@ -522,7 +536,7 @@ def apply_lossy_compression(
 #        for var in ds.data_vars:
 #            ds[var].encoding["filters"]=numcodecs.BitRound(keepbits=12)            
     for var in ds.data_vars:
-        if isinstance(ds[var].data, Daarray):
+        if ds[var].chunks is not None:
             ds[var].encoding["filters"]=[numcodecs.BitRound(keepbits=10)]
     ds.encoding["source"]=se         
     
@@ -542,7 +556,8 @@ def set_compression(ds: xr.Dataset) -> xr.Dataset:
         xr.Dataset: Dataset with compression applied
     """
     for var in ds.variables:
-        if isinstance(ds[var].data, Daarray):
+        if ds[var].chunks is not None:
+        #if isinstance(ds[var].data, Daarray):
             ds[var].encoding["compressor"] = numcodecs.Blosc(
                     cname="lz4", clevel=5, shuffle=2
                 )  # , blocksize=0),
