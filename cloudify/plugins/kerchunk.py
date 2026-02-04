@@ -68,6 +68,8 @@ def create_response_for_zmetadata(zm, key):
     
 async def get_zarr_config_v3_json_response(fsmap, key):
     zm = await fsmap.asyncitem(key)
+    zm = json.loads(zm.decode("utf-8"))
+    zm = sanitize_for_json(zm)        
     jsondump = json.dumps(zm)
     return Response(jsondump, media_type="application/json")      
 
@@ -193,8 +195,8 @@ class KerchunkPlugin(Plugin):
         fsmap = self.mapper_dict[sp]        
         
         resp = None
-        #try:
-        if True:
+        try:
+        #if True:
             if any(a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs", "zarr.json"]):
                 if key == "zarr.json":
                     resp = await get_zarr_config_v3_json_response(fsmap, key)
@@ -218,9 +220,8 @@ class KerchunkPlugin(Plugin):
                     resp = StreamingResponse(full_stream(), media_type="application/octet-stream")   
             resp = set_headers_and_clear_garbage(resp)                    
                     
-        #except Exception as e:
-            #raise HTTPException(status_code=404, detail="Key error in reference dict")
-            #resp = handle_exception(e, tape)
+        except Exception as e:
+            resp = handle_exception(e, tape)
         return resp   
                     
     async def _handle_request_async(self, key, dataset, cache, tape=False):

@@ -644,7 +644,7 @@ def get_description(ds: xr.Dataset, href: str = None, main_item_key: str = None)
 
 
 def refine_for_eerie(item_id: str, griddict: dict) -> dict:
-    if "icon-esm-er" in item_id and "native" in item_id:
+    if any(b in item_id for b in ["icon-esm-er","icon-epoc"]) and "native" in item_id:
         griddict[
             "store"
         ] = "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/grids/"
