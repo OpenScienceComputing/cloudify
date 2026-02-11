@@ -66,11 +66,11 @@ class AsyncFSMap(FSMap):
         )
         self.use_options=kwargs
 
-    async def asyncitem(self, key):
+    async def asyncitem(self, key, **kwargs):
         """Retrieve data asynchronously"""
         k = self._key_to_str(key)
         #try:
-        result = await self.fs._cat(k)
+        result = await self.fs._cat(k, **kwargs)
         #except self.missing_exceptions as exc:
         #    raise KeyError(key) from exc
         return result

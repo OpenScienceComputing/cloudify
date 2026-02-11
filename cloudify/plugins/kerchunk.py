@@ -48,36 +48,42 @@ def kerchunk_stream_content_safe_sync(
         raise
 
 def create_response_for_zmetadata(zm, key):
-    if key == ".zgroup":
+    if key.endswith(".zgroup"):
         jsondump = json.dumps({"zarr_format": 2}) #.encode("utf-8")
         return Response(jsondump, media_type="application/json")
 
     zmetadata = json.loads(zm.decode("utf-8"))
-    zmetadata["zarr_consolidated_format"] = 1
     zmetadata = sanitize_for_json(zmetadata)
-    if key == ".zmetadata":
+    if key == ".zmetadata" or key == "zarr.json":
         jsondump = json.dumps(zmetadata)
+        if key == ".zmetadata":
+            zmetadata["zarr_consolidated_format"] = 1
+    elif key.endswith("zarr.json"):
+        cm = zmetadata.get("consolidated_metadata",{})
+        md = cm.get("metadata",{})
+        km = key.split('/')[-2]
+        jsondump = md.get(km,{})
     else:
         jsondump = zmetadata["metadata"].get(key)
-        if jsondump:
-            jsondump = json.dumps(jsondump)
-        else:
-            return Respose(status_code=404)
+
+    if jsondump:
+        jsondump = json.dumps(jsondump)
+    else:
+        return Respose(status_code=404)
 
     return Response(jsondump, media_type="application/json")
     
-async def get_zarr_config_v3_json_response(fsmap, key):
-    zm = await fsmap.asyncitem(key)
-    zm = json.loads(zm.decode("utf-8"))
-    zm = sanitize_for_json(zm)        
-    jsondump = json.dumps(zm)
-    return Response(jsondump, media_type="application/json")      
-
 async def get_zarr_config_response_async(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, "") + "/kerchunk/" + f"{key}"
     resp = cache.get(cache_key)
     if resp is None:
-        zm = await fsmap.asyncitem(".zmetadata")
+        metakey=".zmetadata"
+        if key.endswith("zarr.json"):
+            metakey="zarr.json"
+        try:
+            zm = await fsmap.asyncitem(metakey)
+        except:
+            raise FileNotFoundError(metakey)
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)
     return resp
@@ -86,7 +92,13 @@ def get_zarr_config_response(dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap):
     cache_key = dataset.attrs.get(DATASET_ID_ATTR_KEY, "") + "/kerchunk/" + f"{key}"
     resp = cache.get(cache_key)
     if resp is None:
-        zm = fsmap[".zmetadata"]
+        metakey=".zmetadata"
+        if key.endswith("zarr.json"):
+            metakey="zarr.json"        
+        try:
+            zm = fsmap[metakey]
+        except:
+            raise FileNotFoundError(metakey)        
         resp = create_response_for_zmetadata(zm, key)
         cache.put(cache_key, resp, 999)        
     return resp
@@ -198,12 +210,9 @@ class KerchunkPlugin(Plugin):
         try:
         #if True:
             if any(a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs", "zarr.json"]):
-                if key == "zarr.json":
-                    resp = await get_zarr_config_v3_json_response(fsmap, key)
-                else:
-                    resp = await get_zarr_config_response_async(
+                resp = await get_zarr_config_response_async(
                         dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap
-                    )
+                        )
             else:
                 gen = None
                 if not any(b in key for b in ["time","lat/","lon/"]):            
@@ -212,7 +221,8 @@ class KerchunkPlugin(Plugin):
                     #if True:
                         gen = kerchunk_stream_content_safe(fsmap, key, start=0,end=1)
                         first = await anext(gen)
-                    except:
+                    except Exception as e:
+                        print(e)
                         pass
                 else:
                     gen = kerchunk_stream_content_safe(fsmap, key)
@@ -238,12 +248,9 @@ class KerchunkPlugin(Plugin):
         try:
         #if True:
             if any(a in key for a in [".zmetadata", ".zarray", ".zgroup", ".zattrs", "zarr.json"]):
-                if key == "zarr.json":
-                    resp = await get_zarr_config_v3_json_response(fsmap, key)
-                else:
-                    resp = await get_zarr_config_response_async(
+                resp = await get_zarr_config_response_async(
                         dataset, DATASET_ID_ATTR_KEY, key, cache,fsmap
-                    )                
+                        )                
             else:
                 gen = kerchunk_stream_content_safe(fsmap, key)
                 full_stream = await get_full_stream(gen)
