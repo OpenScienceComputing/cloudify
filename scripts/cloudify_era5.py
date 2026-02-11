@@ -77,10 +77,10 @@ def add_era5(
         
         # Set coordinates
         if l_dask:
+            ds = gribscan_to_float(ds)
             ds = ds.drop_encoding()
             for l in ["lat", "lon"]:
                 ds.coords[l] = dsone[l].copy()
-            ds = gribscan_to_float(ds) 
             ds.encoding["source"]=urlpath
 
         # Prepare dataset for storage

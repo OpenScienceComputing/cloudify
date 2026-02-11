@@ -193,9 +193,9 @@ def add_nextgems(
         #        ds.attrs[mdk] = mdv
 
         if l_dask:
-            ds = ds.drop_encoding()
             print("gribscan to float")
             ds = gribscan_to_float(ds)            
+            ds = ds.drop_encoding()
             if "25deg" in ia :
                 ds.coords["lat"] = gr_025["lat"]
                 ds.coords["lon"] = gr_025["lon"]

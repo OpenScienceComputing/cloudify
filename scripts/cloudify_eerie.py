@@ -139,7 +139,7 @@ def add_eerie(
             hostids += [
                     a
                     for a in find_data_sources_v2(cat["model-output"].read()[source].read(),name=source)
-                    if not any(b in a for b in ["v2023", "3d_grid"]) and not "spinup" in a #and "ifs-amip" in a 
+                    if not any(b in a for b in ["v2023", "3d_grid"]) and ("spinup" not in a or ( "fesom" in a and "spinup" in a) ) #and "ifs-amip" in a 
                         #"icon-esm-er.hist-1950.v20240618.atmos.native.2d_daily_mean" in a or
                         #("ifs-amip-tco1279" in a and "hist" in a)
                     #)
@@ -230,7 +230,8 @@ def add_eerie(
         #    l_dask=l_dask
         #)
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
-        ds = set_compression(ds)
+        if l_dask:
+            ds = set_compression(ds)
         dsdict[dsid] = ds
     del localdsdict
 

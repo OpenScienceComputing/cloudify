@@ -151,7 +151,8 @@ def add_epoc(
             ds.encoding["source"]=urlpath
             
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
-        ds = set_compression(ds)
+        if l_dask:
+            ds = set_compression(ds)
         dsdict[dsid] = ds
     del localdsdict
     return mapper_dict, dsdict

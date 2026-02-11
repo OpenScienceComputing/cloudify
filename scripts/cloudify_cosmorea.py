@@ -103,9 +103,11 @@ def add_cosmorea(
             ds = ds.drop_encoding()
         ds.encoding["source"]=urlpath
         mapper_dict[urlpath]=mapper        
-        ds = apply_lossy_compression(ds)
+        if l_dask:
+            ds = apply_lossy_compression(ds)
         ds = adapt_for_zarr_plugin_and_stac(dsid, ds)
-        ds = set_compression(ds)        
+        if l_dask:
+            ds = set_compression(ds)        
         dsdict[dsid] = ds
         local_dsdict[dsid] = ds
         

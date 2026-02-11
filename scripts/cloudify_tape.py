@@ -19,7 +19,9 @@ def add_tape(
             storage_options=dict(
                 remote_protocol="hsm",
                 remote_options=dict(
-                    DISK_CACHE="/scratch/k/k202134/INTAKE_CACHE",
+                    disk_trunk="/work/kd0956/kmsc-orders", #
+#                    disk_trunk="/work/kd0956/transfer/",
+#                    DISK_CACHE="/scratch/k/k202134/INTAKE_CACHE",
                     asyncronous=True
                     )
                 ),

@@ -67,7 +67,7 @@ def add_orcestra(
         chunks="auto"
         if not l_dask:
             chunks=None
-        ds, mapper_dict[dsname] = open_zarr_and_mapper(
+        ds, mapper_dict[ini] = open_zarr_and_mapper(
             ini, storage_options=dict(cache_size=0),chunks=chunks
         )
         ds.attrs.update(conf_dict)
