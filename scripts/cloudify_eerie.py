@@ -40,7 +40,7 @@ def get_dsone(
     Returns:
         Optional[xr.Dataset]: Coordinate dataset or None if not found
     """
-    for dsname in ["2d_monthly_mean", "node_grid", "2D_monthly_avg", "2D_monthly","2D_24h"]:
+    for dsname in ["2d_monthly_mean", "node_grid", "2D_monthly_avg", "2D_monthly","2D_24h", "grid"]:
         dscoords = None
         try:
         #if True:
@@ -57,6 +57,8 @@ def get_dsone(
             dscoords = dscoords.assign_coords(lon=("ncells", dscoords.grid_center_lon.values))
             del dscoords["grid_center_lat"]
             del dscoords["grid_center_lon"]
+        elif dsname == "grid":
+            dscoords=dscoords.rename(x="ncells")
         return dscoords
     print(f"Failed to load coordinates for {model}.{realm}")
     return None
@@ -117,9 +119,9 @@ def add_eerie(
             ),
             "ifs-fesom_ocean": get_dsone(
                 cat,
-                "ifs-fesom2-sr.eerie-spinup-1950.v20240304",
+                "ifs-fesom2-sr.hist-1950.v20240304",
                 "ocean",
-                ["grid_center_lat", "grid_center_lon", "coast"],
+                ["lat", "lon", "coast"],
             ),
             "ifs-amip-tco1279_atmos": get_dsone(
                 cat, "ifs-fesom2-sr.hist-1950.v20240304", "atmos", ["lat", "lon"]
@@ -139,7 +141,7 @@ def add_eerie(
             hostids += [
                     a
                     for a in find_data_sources_v2(cat["model-output"].read()[source].read(),name=source)
-                    if not any(b in a for b in ["v2023", "3d_grid"]) and ("spinup" not in a or ( "fesom" in a and "spinup" in a) ) #and "ifs-amip" in a 
+                    if not any(b in a for b in ["v2023", "3d_grid"]) and "spinup" not in a  
                         #"icon-esm-er.hist-1950.v20240618.atmos.native.2d_daily_mean" in a or
                         #("ifs-amip-tco1279" in a and "hist" in a)
                     #)
