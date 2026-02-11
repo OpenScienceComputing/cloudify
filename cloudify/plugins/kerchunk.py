@@ -62,7 +62,7 @@ def create_response_for_zmetadata(zm, key):
         if jsondump:
             jsondump = json.dumps(jsondump)
         else:
-            raise HTTPException(status_code=404, detail=f"{key} not found")
+            return Respose(status_code=404)
 
     return Response(jsondump, media_type="application/json")
     
@@ -124,7 +124,7 @@ async def get_full_stream(gen):
 
 def handle_exception(e, tape):
     status_code=503
-    if isinstance(e, FileNotFoundError):
+    if isinstance(e, FileNotFoundError) or isinstance(e, KeyError):
         status_code = 404
     
     resp = Response(status_code=status_code)
