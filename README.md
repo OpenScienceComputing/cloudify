@@ -103,7 +103,76 @@ xr.open_dataset(
 
 **STAC**
 
-Self defined plugin. Endpoints:
+The `cloudify.stac` package generates STAC items and collections from xarray
+datasets.  It works in two modes:
+
+**Standalone** — generate STAC items offline without running a server:
+
+```python
+import xarray as xr
+from cloudify.stac import build_stac_item, load_config
+
+ds = xr.open_zarr("s3://my-bucket/model.zarr", consolidated=True)
+config = load_config("cloudify/stac/configs/default.json")
+item = build_stac_item(ds, "model-v1", config,
+                       assets={"data": "s3://my-bucket/model.zarr"})
+```
+
+**Icechunk** — generate STAC items for regular or virtual Icechunk stores:
+
+```python
+import icechunk, xarray as xr, pystac
+from cloudify.stac import build_stac_item_from_icechunk
+
+repo = icechunk.Repository.open(icechunk.s3_storage(...))
+session = repo.readonly_session("main")
+ds = xr.open_zarr(session.store, consolidated=False, zarr_format=3)
+
+item = build_stac_item_from_icechunk(
+    ds,
+    item_id="my-dataset",
+    icechunk_href="s3://my-bucket/my-repo/",
+    snapshot_id=session.snapshot_id,
+    storage_schemes={"aws-s3-my-bucket": {"type": "aws-s3", "bucket": "my-bucket",
+                                           "region": "us-east-1", "anonymous": False}},
+    virtual=False,  # set True for virtual-chunk repos
+)
+```
+
+**xpublish plugin** — serve STAC items alongside zarr endpoints.  Datasets opened
+from Icechunk stores are detected automatically via `_icechunk_href` /
+`_icechunk_snapshot_id` attrs:
+
+```python
+import xpublish
+from cloudify.stac import Stac
+
+# tag icechunk datasets so the plugin routes them correctly
+ds_ice.attrs["_icechunk_href"] = "s3://my-bucket/my-repo/"
+ds_ice.attrs["_icechunk_snapshot_id"] = session.snapshot_id
+
+rest = xpublish.Rest(
+    {"zarr-dataset": ds_zarr, "ice-dataset": ds_ice},
+    plugins={"stac": Stac(config_path="cloudify/stac/configs/default.json")}
+)
+rest.serve()
+# GET /datasets/zarr-dataset/stac  →  STAC item, asset points at /zarr endpoint
+# GET /datasets/ice-dataset/stac   →  STAC item, asset points at original S3 repo
+# GET /stac-collection-all.json    →  STAC collection listing all datasets
+```
+
+For institution-specific deployments (e.g. EERIE/DKRZ) use
+`config_path="cloudify/stac/configs/eerie.json"`.
+
+**Example notebooks** (verified against live public stores):
+
+| Notebook | Dataset | Store type |
+|---|---|---|
+| [`examples/noaa_gfs_stac.ipynb`](examples/noaa_gfs_stac.ipynb) | NOAA GFS Forecast (dynamical.org) | Regular Icechunk, lat/lon |
+| [`examples/noaa_hrrr_stac.ipynb`](examples/noaa_hrrr_stac.ipynb) | NOAA HRRR 48-Hour Forecast (dynamical.org) | Regular Icechunk, Lambert Conformal CRS |
+| [`examples/nldas3_virtual_stac.ipynb`](examples/nldas3_virtual_stac.ipynb) | NLDAS-3 Forcing (NASA) | Virtual Icechunk, lat/lon |
+
+Consuming a STAC collection from an xpublish server:
 
 ```python
 import pystac
