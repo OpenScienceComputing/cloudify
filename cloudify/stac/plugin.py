@@ -5,9 +5,6 @@ Thin wrapper around cloudify.stac.builder — no EERIE-specific logic here.
 """
 from __future__ import annotations
 
-import importlib.resources
-import socket
-from copy import deepcopy
 from pathlib import Path
 from typing import Sequence
 
@@ -22,8 +19,7 @@ from xpublish.utils.api import DATASET_ID_ATTR_KEY, JSONResponse
 from cloudify.stac.builder import (
     build_stac_collection,
     build_stac_item,
-    extract_spatial_extent,
-    extract_temporal_extent,
+    build_stac_item_from_icechunk,
     load_config,
     make_json_serializable,
     merge_configs,
@@ -149,19 +145,34 @@ class Stac(Plugin):
 
             if resp is None:
                 cfg = plugin_self._merged_config()
-
-                # Build asset URL pointing at this server's zarr endpoint
                 base_url = str(request.base_url).rstrip("/")
-                zarr_href = f"{base_url}/datasets/{item_id}/zarr"
 
-                assets = {"data": zarr_href}
+                icechunk_href = ds.attrs.get("_icechunk_href")
+                snapshot_id = ds.attrs.get("_icechunk_snapshot_id")
 
-                # If the dataset has a disk source, expose it too
-                disk_source = ds.encoding.get("source")
-                if disk_source:
-                    assets["dkrz-disk"] = disk_source
+                if icechunk_href and snapshot_id:
+                    # Dataset was opened from an icechunk store — point the
+                    # STAC asset at the original repo, not the xpublish URL.
+                    storage_schemes = cfg.get("storage_schemes", {})
+                    item_dict = build_stac_item_from_icechunk(
+                        ds,
+                        item_id=item_id,
+                        icechunk_href=icechunk_href,
+                        snapshot_id=snapshot_id,
+                        storage_schemes=storage_schemes,
+                    )
+                else:
+                    # Standard zarr dataset — point asset at xpublish zarr endpoint
+                    zarr_href = f"{base_url}/datasets/{item_id}/zarr"
+                    assets = {"data": zarr_href}
 
-                item_dict = build_stac_item(ds, item_id, cfg, assets=assets)
+                    # If the dataset has a disk/cloud source, expose it too
+                    disk_source = ds.encoding.get("source")
+                    if disk_source:
+                        assets["dkrz-disk"] = disk_source
+
+                    item_dict = build_stac_item(ds, item_id, cfg, assets=assets)
+
                 item_dict = make_json_serializable(item_dict)
 
                 resp = JSONResponse(item_dict)
