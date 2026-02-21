@@ -337,6 +337,7 @@ def build_stac_item_from_icechunk(
     description: str | None = None,
     providers: list[pystac.Provider] | None = None,
     virtual: bool = True,
+    virtual_hrefs: list[str] | None = None,
     extra_stac_extensions: list[str] | None = None,
     temporal_dimension: str = "time",
     x_dimension: str | None = None,
@@ -356,7 +357,9 @@ def build_stac_item_from_icechunk(
         S3 (or other) URI of the icechunk repository root,
         e.g. ``"s3://my-bucket/path/to/repo/"``.
     snapshot_id:
-        Icechunk snapshot ID string (upper-case alphanumeric).
+        Icechunk snapshot ID string (upper-case alphanumeric).  Stored as
+        ``"version"`` in the asset extra_fields so that xpystac can use it
+        to open the correct session via ``repo.readonly_session()``.
     storage_schemes:
         Dict describing the storage backend, keyed by a short scheme name.
         Stored at the top-level item ``extra_fields`` (NOT inside
@@ -384,7 +387,13 @@ def build_stac_item_from_icechunk(
         List of ``pystac.Provider`` objects.
     virtual:
         ``True`` (default) for virtual-chunk repos where chunk data lives in
-        external files.  Adds ``"virtual"`` to asset roles.
+        external files.  Adds ``"virtual"`` to asset roles and ``"vrt:hrefs"``
+        to the asset extra_fields (required by xpystac for round-trip open).
+    virtual_hrefs:
+        List of S3 URIs where the virtual chunk data lives, e.g.
+        ``["s3://my-bucket/source-data/"]``.  Required when ``virtual=True``
+        for the xpystac round-trip to work.  Each href becomes a separate
+        asset in the item that the ``"vrt:hrefs"`` field points to.
     extra_stac_extensions:
         Additional STAC extension URLs to include beyond the icechunk defaults.
     temporal_dimension:
@@ -480,12 +489,43 @@ def build_stac_item_from_icechunk(
     base_name = asset_name or item_id.split("-")[0]
     asset_key = f"{base_name}@{snapshot_id}"
 
-    # --- storage:refs -------------------------------------- ----------------
+    # --- storage:refs ------------------------------------------------------
     storage_refs = list(storage_schemes.keys())
 
     asset_roles = ["data", "references", "latest-version"]
     if virtual:
         asset_roles.append("virtual")
+
+    # --- virtual source assets ---------------------------------------------
+    # xpystac.read_icechunk() looks for "vrt:hrefs" in the primary asset —
+    # a list of {"key": <asset_key>} dicts — then fetches that asset's href
+    # as the VirtualChunkContainer source URL.
+    vrt_hrefs = []
+    for i, vh in enumerate(virtual_hrefs or []):
+        src_key = f"{base_name}-virtual-source" if len(virtual_hrefs or []) == 1 \
+                  else f"{base_name}-virtual-source-{i}"
+        item.add_asset(
+            src_key,
+            pystac.Asset(
+                href=vh,
+                roles=["virtual-source"],
+                extra_fields={"storage:refs": storage_refs},
+            ),
+        )
+        vrt_hrefs.append({"key": src_key})
+
+    # --- primary icechunk repo asset ---------------------------------------
+    primary_extra: dict[str, Any] = {
+        "zarr:consolidated": False,
+        "zarr:zarr_format": 3,
+        "icechunk:snapshot_id": snapshot_id,
+        # "version" is what xpystac uses to call repo.readonly_session():
+        # it tries branch → tag → snapshot_id in that order.
+        "version": snapshot_id,
+        "storage:refs": storage_refs,
+    }
+    if vrt_hrefs:
+        primary_extra["vrt:hrefs"] = vrt_hrefs
 
     item.add_asset(
         asset_key,
@@ -494,12 +534,7 @@ def build_stac_item_from_icechunk(
             title=_title,
             media_type=ICECHUNK_MEDIA_TYPE,
             roles=asset_roles,
-            extra_fields={
-                "zarr:consolidated": False,
-                "zarr:zarr_format": 3,
-                "icechunk:snapshot_id": snapshot_id,
-                "storage:refs": storage_refs,
-            },
+            extra_fields=primary_extra,
         ),
     )
 
