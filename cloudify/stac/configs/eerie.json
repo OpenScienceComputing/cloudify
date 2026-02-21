@@ -1,0 +1,65 @@
+{
+  "stac_extensions": [
+    "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.2.0/schema.json",
+    "https://stac-extensions.github.io/alternate-assets/v1.2.0/schema.json"
+  ],
+  "providers": [
+    {
+      "name": "DKRZ",
+      "description": "The data host of eerie.cloud",
+      "roles": ["host"],
+      "url": "https://dkrz.de"
+    }
+  ],
+  "collection": {
+    "id": "eerie-cloud-all",
+    "title": "ESM data from DKRZ in Zarr format",
+    "description": "# Items of the eerie.cloud\n\nDKRZ hosts a data server named 'eerie.cloud' for global high resolution Earth System Model simulation output stored at the German Climate Computing Center (DKRZ). This was developped within the EU project EERIE. Eerie.cloud makes use of the python package xpublish. Xpublish is a plugin for xarray (Hoyer, 2023) which is widely used in the Earth System Science community. It serves ESM output formatted as zarr (Miles, 2020) via a RestAPI based on FastAPI. Served in this way, the data imitates cloud-native data (Abernathey, 2021) and features many capabilities of cloud-optimized data.\n\n[Imprint](https://www.dkrz.de/en/about-en/contact/impressum) and\n[Privacy Policy](https://www.dkrz.de/en/about-en/contact/en-datenschutzhinweise).",
+    "keywords": ["EERIE", "cloud", "ICON", "NextGEMs", "ERA5", "IFS", "FESOM", "NEMO", "HadGEM"],
+    "license": "other",
+    "parent_catalog": "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/catalogs/stac-catalog-eeriecloud.json"
+  },
+  "item_properties": {},
+  "assets": {
+    "dkrz-disk": {
+      "title": "Zarr-access from Lustre",
+      "description": "Chunk-based access on Raw Data",
+      "media_type": "application/vnd+zarr",
+      "roles": ["data"],
+      "open_kwargs": {"engine": "zarr", "chunks": "auto", "consolidated": true},
+      "storage_options": {}
+    },
+    "dkrz-cloud": {
+      "title": "Zarr-access from Cloud Storage",
+      "description": "Chunk-based access on Raw Data",
+      "media_type": "application/vnd+zarr",
+      "roles": ["data"],
+      "open_kwargs": {"engine": "zarr", "chunks": "auto", "consolidated": true},
+      "storage_options": {}
+    },
+    "dkrz-archive": {
+      "title": "Zarr-access from Tape Archive",
+      "description": "Chunk-based access on raw data",
+      "media_type": "application/vnd+zarr",
+      "roles": ["data"],
+      "open_kwargs": {"engine": "zarr", "chunks": "auto", "consolidated": true},
+      "storage_options": {}
+    },
+    "eerie-cloud": {
+      "title": "Zarr-access through Eerie Cloud",
+      "description": "Chunk-based access on raw-encoded data",
+      "media_type": "application/vnd+zarr",
+      "roles": ["data"],
+      "open_kwargs": {"engine": "zarr", "chunks": "auto", "consolidated": false},
+      "storage_options": {"lazy": true}
+    }
+  },
+  "eerie": {
+    "eerie_cloud_url": "https://eerie.cloud.dkrz.de/datasets",
+    "gridlook_url": "https://gridlook.pages.dev/",
+    "jupyterlite_url": "https://swift.dkrz.de/v1/dkrz_7fa6baba-db43-4d12-a295-8e3ebb1a01ed/apps/jupyterlite/index.html",
+    "techdoc_url": "https://pad.gwdg.de/OZo5HMC4R6iljvZHlo-BzQ#"
+  },
+  "links": []
+}

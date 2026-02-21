@@ -23,6 +23,7 @@
  xarray
  xpublish
  pystac
+ xstac
  xpublish_intake
  fastapi #==0.112.0
  zarr #<3

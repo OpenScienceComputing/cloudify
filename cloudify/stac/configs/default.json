@@ -1,0 +1,27 @@
+{
+  "stac_extensions": [
+    "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/datacube/v2.2.0/schema.json"
+  ],
+  "providers": [],
+  "collection": {
+    "id": "my-collection",
+    "title": "My Collection",
+    "description": "Cloud-hosted model output",
+    "keywords": [],
+    "license": "other",
+    "parent_catalog": null
+  },
+  "item_properties": {},
+  "assets": {
+    "data": {
+      "title": "Zarr data store",
+      "description": "Cloud-optimized Zarr data",
+      "media_type": "application/vnd+zarr",
+      "roles": ["data"],
+      "open_kwargs": {"engine": "zarr", "chunks": "auto", "consolidated": true},
+      "storage_options": {}
+    }
+  },
+  "links": []
+}
