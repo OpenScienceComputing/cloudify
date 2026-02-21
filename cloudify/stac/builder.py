@@ -91,16 +91,20 @@ def extract_spatial_extent(ds: xr.Dataset) -> list[float]:
 
 
 def extract_spatial_extent_rio(ds: xr.Dataset) -> list[float]:
-    """Return [lonmin, latmin, lonmax, latmax] using rioxarray if available.
+    """Return [lonmin, latmin, lonmax, latmax] in WGS84 using rioxarray.
 
-    rioxarray's ds.rio.bounds() is more accurate for projected or regional
-    datasets because it uses the CRS and affine transform rather than scanning
-    coordinate arrays.  Falls back to extract_spatial_extent() if rioxarray
-    is not installed or the dataset has no CRS set.
+    Always reprojects to EPSG:4326 so the result is valid for a STAC bbox
+    regardless of the dataset's native CRS (e.g. Lambert Conformal for HRRR,
+    plain lon/lat for GFS).  Falls back to extract_spatial_extent() if
+    rioxarray is not installed or the dataset has no CRS information.
     """
     try:
         import rioxarray  # noqa: F401
-        bounds = ds.rio.bounds()   # (minx, miny, maxx, maxy)
+        # transform_bounds reprojects from the native CRS to the target CRS.
+        # Use the first data variable so we get a DataArray (more reliable
+        # CRS handling than the Dataset accessor in older rioxarray versions).
+        first_var = next(iter(ds.data_vars))
+        bounds = ds[first_var].rio.transform_bounds("EPSG:4326")
         return list(bounds)
     except Exception:
         return extract_spatial_extent(ds)
