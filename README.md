@@ -118,7 +118,7 @@ item = build_stac_item(ds, "model-v1", config,
                        assets={"data": "s3://my-bucket/model.zarr"})
 ```
 
-**Icechunk** — generate STAC items for regular or virtual Icechunk stores:
+**Icechunk (regular)** — chunk data lives directly in the repo:
 
 ```python
 import icechunk, xarray as xr, pystac
@@ -135,7 +135,25 @@ item = build_stac_item_from_icechunk(
     snapshot_id=session.snapshot_id,
     storage_schemes={"aws-s3-my-bucket": {"type": "aws-s3", "bucket": "my-bucket",
                                            "region": "us-east-1", "anonymous": False}},
-    virtual=False,  # set True for virtual-chunk repos
+    virtual=False,
+)
+```
+
+**Icechunk (virtual)** — chunk data is referenced from external source files.
+Pass `virtual_hrefs` so that `xr.open_dataset(asset)` via
+[xpystac](https://github.com/stac-utils/xpystac) can reconstruct the
+`VirtualChunkContainer` config automatically:
+
+```python
+item = build_stac_item_from_icechunk(
+    ds,
+    item_id="my-virtual-dataset",
+    icechunk_href="s3://my-bucket/virtual-repo/",
+    snapshot_id=session.snapshot_id,
+    storage_schemes={"aws-s3-my-bucket": {"type": "aws-s3", "bucket": "my-bucket",
+                                           "region": "us-west-2", "anonymous": True}},
+    virtual=True,
+    virtual_hrefs=["s3://my-bucket/source-data/"],  # where chunk bytes live
 )
 ```
 
