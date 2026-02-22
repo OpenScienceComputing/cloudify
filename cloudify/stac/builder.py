@@ -105,12 +105,16 @@ def extract_spatial_extent_rio(ds: xr.Dataset) -> list[float]:
         # CRS handling than the Dataset accessor in older rioxarray versions).
         first_var = next(iter(ds.data_vars))
         lonmin, latmin, lonmax, latmax = ds[first_var].rio.transform_bounds("EPSG:4326")
-        # Clamp to valid WGS84 range — transform_bounds() returns pixel-edge values
-        # (e.g. latmin=-90.125 for a global 0.25° dataset) that STAC Browser rejects.
-        lonmin = max(-180.0, lonmin)
-        latmin = max(-90.0, latmin)
-        lonmax = min(180.0, lonmax)
-        latmax = min(90.0, latmax)
+        # Clamp to just inside valid WGS84 range. Two reasons:
+        # 1. transform_bounds() returns pixel-edge values (e.g. -90.125) that
+        #    STAC Browser rejects as invalid geometry.
+        # 2. A polygon with edges exactly at ±180° lon coincides with Leaflet's
+        #    tile seam and renders as two vertical lines instead of a filled
+        #    rectangle. Using ±179.9/±89.9 avoids the antimeridian artifact.
+        lonmin = max(-179.9, lonmin)
+        latmin = max(-89.9, latmin)
+        lonmax = min(179.9, lonmax)
+        latmax = min(89.9, latmax)
         return [lonmin, latmin, lonmax, latmax]
     except Exception:
         return extract_spatial_extent(ds)
