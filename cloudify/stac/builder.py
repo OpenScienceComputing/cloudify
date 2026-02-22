@@ -111,10 +111,10 @@ def extract_spatial_extent_rio(ds: xr.Dataset) -> list[float]:
         # 2. A polygon with edges exactly at ±180° lon coincides with Leaflet's
         #    tile seam and renders as two vertical lines instead of a filled
         #    rectangle. Using ±179.9/±89.9 avoids the antimeridian artifact.
-        lonmin = max(-179.9, lonmin)
-        latmin = max(-89.9, latmin)
-        lonmax = min(179.9, lonmax)
-        latmax = min(89.9, latmax)
+        lonmin = max(-179.5, lonmin)
+        latmin = max(-89.5, latmin)
+        lonmax = min(179.5, lonmax)
+        latmax = min(89.5, latmax)
         return [lonmin, latmin, lonmax, latmax]
     except Exception:
         return extract_spatial_extent(ds)
