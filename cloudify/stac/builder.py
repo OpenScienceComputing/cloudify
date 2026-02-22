@@ -104,8 +104,14 @@ def extract_spatial_extent_rio(ds: xr.Dataset) -> list[float]:
         # Use the first data variable so we get a DataArray (more reliable
         # CRS handling than the Dataset accessor in older rioxarray versions).
         first_var = next(iter(ds.data_vars))
-        bounds = ds[first_var].rio.transform_bounds("EPSG:4326")
-        return list(bounds)
+        lonmin, latmin, lonmax, latmax = ds[first_var].rio.transform_bounds("EPSG:4326")
+        # Clamp to valid WGS84 range — transform_bounds() returns pixel-edge values
+        # (e.g. latmin=-90.125 for a global 0.25° dataset) that STAC Browser rejects.
+        lonmin = max(-180.0, lonmin)
+        latmin = max(-90.0, latmin)
+        lonmax = min(180.0, lonmax)
+        latmax = min(90.0, latmax)
+        return [lonmin, latmin, lonmax, latmax]
     except Exception:
         return extract_spatial_extent(ds)
 
