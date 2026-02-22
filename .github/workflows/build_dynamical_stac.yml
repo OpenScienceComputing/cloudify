@@ -1,0 +1,39 @@
+name: Build dynamical.org STAC Catalog
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # every 3 hours
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+          init-shell: bash
+
+      - name: Install cloudify from local source
+        run: micromamba run -n cloudify-notebooks pip install -e . --no-deps
+
+      - name: Clone GitHub Pages repo
+        env:
+          PAGES_PAT: ${{ secrets.PAGES_PAT }}
+        run: |
+          git clone "https://x-access-token:${PAGES_PAT}@github.com/OpenScienceComputing/dynamical-stac.git" /tmp/dynamical-stac
+          git -C /tmp/dynamical-stac config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C /tmp/dynamical-stac config user.name "github-actions[bot]"
+
+      - name: Build and publish catalog
+        run: |
+          micromamba run -n cloudify-notebooks python scripts/build_dynamical_stac.py \
+            --no-upload \
+            --public-domain opensciencecomputing.github.io/dynamical-stac \
+            --catalog-prefix stac/dynamical \
+            --github-pages /tmp/dynamical-stac \
+            --github-pages-push
