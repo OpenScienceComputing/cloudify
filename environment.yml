@@ -1,0 +1,30 @@
+name: cloudify-notebooks
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - jupyterlab
+  - ipykernel
+  # Core data/array
+  - xarray
+  - zarr>=3
+  - numpy
+  - dask
+  # Geo / CRS
+  - rioxarray
+  - pyproj
+  # Cloud storage
+  - fsspec
+  - s3fs
+  - aiohttp
+  - requests
+  - pyyaml
+  # STAC
+  - pystac
+  - icechunk
+  - xstac
+  - xpystac
+  - pip
+  - pip:
+    - git+https://github.com/OpenScienceComputing/cloudify.git
