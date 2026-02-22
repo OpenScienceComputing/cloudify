@@ -5,7 +5,7 @@ Discovers datasets automatically by:
   1. Querying awslabs/open-data-registry for dynamical-*.yaml files
   2. Listing each public S3 bucket to find *.icechunk store prefixes
   3. Opening each store, building a STAC item with a copy-paste code snippet
-  4. Writing the catalog locally, then uploading to an S3-compatible store
+  4. Writing the catalog locally, then publishing to S3 or GitHub Pages
 
 Usage:
     python scripts/build_dynamical_stac.py [options]
@@ -13,16 +13,33 @@ Usage:
     # Dry run — build and save locally only, no upload:
     python scripts/build_dynamical_stac.py --no-upload --output-dir /tmp/stac-out
 
-    # Full run with upload:
+    # Publish to S3-compatible storage:
     python scripts/build_dynamical_stac.py \\
         --catalog-bucket osc-pub \\
         --catalog-prefix stac/dynamical \\
         --profile osc-pub-r2 \\
         --public-domain r2-pub.openscicomp.io
+
+    # Publish to GitHub Pages (auto-commit; push separately):
+    python scripts/build_dynamical_stac.py \\
+        --no-upload \\
+        --public-domain myorg.github.io/myrepo \\
+        --catalog-prefix stac/dynamical \\
+        --github-pages /path/to/local/gh-pages-clone
+
+    # Publish to GitHub Pages and auto-push:
+    python scripts/build_dynamical_stac.py \\
+        --no-upload \\
+        --public-domain myorg.github.io/myrepo \\
+        --catalog-prefix stac/dynamical \\
+        --github-pages /path/to/local/gh-pages-clone \\
+        --github-pages-push
 """
 
 import argparse
 import logging
+import shutil
+import subprocess
 import sys
 import tempfile
 import warnings
@@ -326,6 +343,54 @@ def upload_to_s3(
         log.info("  %s  →  s3://%s", rel, s3_dest)
 
 
+def publish_to_github_pages(
+    output_dir: Path,
+    pages_dir: Path,
+    catalog_prefix: str,
+    auto_push: bool = False,
+) -> None:
+    """Copy catalog JSON into a local GitHub Pages repo and commit.
+
+    Files from output_dir are copied to pages_dir/catalog_prefix/, preserving
+    the relative directory structure.  A git commit is then made in pages_dir.
+    Pass auto_push=True to also run `git push`.
+    """
+    dest_dir = pages_dir / catalog_prefix
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    log.info("\nCopying catalog to GitHub Pages repo at %s ...", pages_dir)
+    for local_file in sorted(output_dir.rglob("*.json")):
+        rel = local_file.relative_to(output_dir)
+        dest = dest_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local_file, dest)
+        log.info("  %s  →  %s", rel, dest.relative_to(pages_dir))
+
+    subprocess.run(["git", "add", str(dest_dir)], cwd=pages_dir, check=True)
+
+    # Check whether there is anything new to commit
+    changed = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"], cwd=pages_dir
+    ).returncode != 0
+
+    if not changed:
+        log.info("No changes to commit in %s", pages_dir)
+        return
+
+    subprocess.run(
+        ["git", "commit", "-m", "Update dynamical.org STAC catalog"],
+        cwd=pages_dir,
+        check=True,
+    )
+    log.info("Committed catalog in %s", pages_dir)
+
+    if auto_push:
+        subprocess.run(["git", "push"], cwd=pages_dir, check=True)
+        log.info("Pushed to remote.")
+    else:
+        log.info("Run 'git push' in %s to publish.", pages_dir)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -345,6 +410,14 @@ def main() -> None:
                         help="Local dir to write JSON (default: temp dir)")
     parser.add_argument("--no-upload",       action="store_true",
                         help="Skip S3 upload (build and save locally only)")
+    parser.add_argument("--github-pages",    type=Path, default=None,
+                        metavar="DIR",
+                        help="Local path to a GitHub Pages git clone. "
+                             "Catalog files are copied to DIR/catalog-prefix/ "
+                             "and auto-committed. Set --public-domain to the "
+                             "GitHub Pages hostname (e.g. myorg.github.io/myrepo).")
+    parser.add_argument("--github-pages-push", action="store_true",
+                        help="Auto git-push after committing to the GitHub Pages repo.")
     parser.add_argument("-v", "--verbose",   action="store_true")
     args = parser.parse_args()
 
@@ -376,6 +449,14 @@ def main() -> None:
         log.info("--no-upload set, skipping S3 upload.")
     else:
         upload_to_s3(output_dir, args.catalog_bucket, args.catalog_prefix, args.profile)
+
+    if args.github_pages:
+        publish_to_github_pages(
+            output_dir,
+            args.github_pages,
+            args.catalog_prefix,
+            auto_push=args.github_pages_push,
+        )
 
     browser_url = (
         "https://radiantearth.github.io/stac-browser/#/external/"
