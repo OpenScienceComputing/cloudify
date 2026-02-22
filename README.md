@@ -190,6 +190,57 @@ For institution-specific deployments (e.g. EERIE/DKRZ) use
 | [`examples/noaa_hrrr_stac.ipynb`](examples/noaa_hrrr_stac.ipynb) | NOAA HRRR 48-Hour Forecast (dynamical.org) | Regular Icechunk, Lambert Conformal CRS |
 | [`examples/nldas3_virtual_stac.ipynb`](examples/nldas3_virtual_stac.ipynb) | NLDAS-3 Forcing (NASA) | Virtual Icechunk, lat/lon |
 
+**Building a static STAC catalog** (`scripts/build_dynamical_stac.py`)
+
+The script auto-discovers all [dynamical.org](https://dynamical.org) Icechunk
+stores from the AWS Open Data Registry, builds STAC items for each, and
+publishes the catalog to S3-compatible storage or GitHub Pages.
+
+```bash
+# Dry run — build locally only (no upload):
+python scripts/build_dynamical_stac.py --no-upload --output-dir /tmp/stac-out
+
+# Publish to S3-compatible storage (e.g. Cloudflare R2):
+python scripts/build_dynamical_stac.py \
+    --catalog-bucket osc-pub \
+    --catalog-prefix stac/dynamical \
+    --profile osc-pub-r2 \
+    --public-domain r2-pub.openscicomp.io
+
+# Publish to GitHub Pages (auto-commit; push manually afterward):
+python scripts/build_dynamical_stac.py \
+    --no-upload \
+    --public-domain myorg.github.io/myrepo \
+    --catalog-prefix stac/dynamical \
+    --github-pages /path/to/local/gh-pages-clone
+
+# Publish to GitHub Pages and auto-push:
+python scripts/build_dynamical_stac.py \
+    --no-upload \
+    --public-domain myorg.github.io/myrepo \
+    --catalog-prefix stac/dynamical \
+    --github-pages /path/to/local/gh-pages-clone \
+    --github-pages-push
+
+# Publish to both S3 and GitHub Pages in one run:
+python scripts/build_dynamical_stac.py \
+    --public-domain r2-pub.openscicomp.io \
+    --github-pages /path/to/local/gh-pages-clone \
+    --github-pages-push
+```
+
+Key behaviours:
+
+- Datasets are discovered automatically — new dynamical.org stores appear without
+  any script changes.
+- For GitHub Pages: files land at `DIR/catalog-prefix/`; the commit is skipped if
+  nothing changed (idempotent re-runs); without `--github-pages-push` you can
+  review before publishing.
+- GitHub Pages has CORS enabled by default, making it a zero-config alternative
+  to S3 for hosting read-only catalogs.
+- The catalog URL printed at the end can be pasted directly into
+  [STAC Browser](https://radiantearth.github.io/stac-browser/).
+
 Consuming a STAC collection from an xpublish server:
 
 ```python
