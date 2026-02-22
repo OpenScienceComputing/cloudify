@@ -111,10 +111,10 @@ def extract_spatial_extent_rio(ds: xr.Dataset) -> list[float]:
         # 2. A polygon with edges exactly at ±180° lon coincides with Leaflet's
         #    tile seam and renders as two vertical lines instead of a filled
         #    rectangle. Using ±179.9/±89.9 avoids the antimeridian artifact.
-        lonmin = max(-179.5, lonmin)
-        latmin = max(-89.5, latmin)
-        lonmax = min(179.5, lonmax)
-        latmax = min(89.5, latmax)
+        lonmin = max(-180.0, lonmin)
+        latmin = max(-90.0, latmin)
+        lonmax = min(180.0, lonmax)
+        latmax = min(90.0, latmax)
         return [lonmin, latmin, lonmax, latmax]
     except Exception:
         return extract_spatial_extent(ds)
@@ -495,17 +495,6 @@ def build_stac_item_from_icechunk(
         template.properties.update(cube)
         item = template
 
-    # Clamp cube:dimensions spatial extents to match the item bbox.
-    # xstac uses the raw coordinate center values (e.g. lon -180.0 to 179.75,
-    # lat -90.0 to 90.0) which cause STAC Browser's Leaflet map to render
-    # global datasets as edge lines instead of a filled rectangle.
-    for dim in item.properties.get("cube:dimensions", {}).values():
-        if dim.get("axis") == "x" and "extent" in dim:
-            lo, hi = dim["extent"]
-            dim["extent"] = [max(-179.5, lo), min(179.5, hi)]
-        elif dim.get("axis") == "y" and "extent" in dim:
-            lo, hi = dim["extent"]
-            dim["extent"] = [max(-89.5, lo), min(89.5, hi)]
 
     # --- asset key ---------------------------------------------------------
     base_name = asset_name or item_id.split("-")[0]
