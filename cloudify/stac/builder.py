@@ -495,6 +495,18 @@ def build_stac_item_from_icechunk(
         template.properties.update(cube)
         item = template
 
+    # Clamp cube:dimensions spatial extents to match the item bbox.
+    # xstac uses the raw coordinate center values (e.g. lon -180.0 to 179.75,
+    # lat -90.0 to 90.0) which cause STAC Browser's Leaflet map to render
+    # global datasets as edge lines instead of a filled rectangle.
+    for dim in item.properties.get("cube:dimensions", {}).values():
+        if dim.get("axis") == "x" and "extent" in dim:
+            lo, hi = dim["extent"]
+            dim["extent"] = [max(-179.5, lo), min(179.5, hi)]
+        elif dim.get("axis") == "y" and "extent" in dim:
+            lo, hi = dim["extent"]
+            dim["extent"] = [max(-89.5, lo), min(89.5, hi)]
+
     # --- asset key ---------------------------------------------------------
     base_name = asset_name or item_id.split("-")[0]
     asset_key = f"{base_name}@{snapshot_id}"
