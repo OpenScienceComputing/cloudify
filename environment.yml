@@ -23,6 +23,7 @@ dependencies:
   - pyyaml
   # STAC
   - pystac
+  - pystac-client
   - icechunk
   - xstac
   - xpystac
