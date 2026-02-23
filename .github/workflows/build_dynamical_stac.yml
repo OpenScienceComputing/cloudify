@@ -21,19 +21,21 @@ jobs:
       - name: Install cloudify from local source
         run: micromamba run -n cloudify-notebooks pip install -e . --no-deps
 
-      - name: Clone GitHub Pages repo
-        env:
-          PAGES_PAT: ${{ secrets.PAGES_PAT }}
+      - name: Configure R2 credentials
         run: |
-          git clone "https://x-access-token:${PAGES_PAT}@github.com/OpenScienceComputing/dynamical-stac.git" /tmp/dynamical-stac
-          git -C /tmp/dynamical-stac config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C /tmp/dynamical-stac config user.name "github-actions[bot]"
+          mkdir -p ~/.aws
+          printf '[osc-pub-r2]\naws_access_key_id=%s\naws_secret_access_key=%s\nendpoint_url=%s\n' \
+            "$R2_KEY_ID" "$R2_SECRET" "$R2_ENDPOINT" > ~/.aws/credentials
+        env:
+          R2_KEY_ID:  ${{ secrets.R2_KEY_ID }}
+          R2_SECRET:  ${{ secrets.R2_SECRET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
 
-      - name: Build and publish catalog
+      - name: Build catalog and publish to R2
         run: |
           micromamba run -n cloudify-notebooks python scripts/build_dynamical_stac.py \
-            --no-upload \
-            --public-domain opensciencecomputing.github.io/dynamical-stac \
+            --catalog-bucket osc-pub \
             --catalog-prefix stac/dynamical \
-            --github-pages /tmp/dynamical-stac \
-            --github-pages-push
+            --profile osc-pub-r2 \
+            --public-domain r2-pub.openscicomp.io \
+            --geoparquet

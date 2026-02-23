@@ -28,5 +28,9 @@ dependencies:
   - xstac
   - xpystac
   - pip
+  - pyarrow
+  - pip
   - pip:
     - git+https://github.com/OpenScienceComputing/cloudify.git
+    - stac-geoparquet
+    - rustac

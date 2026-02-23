@@ -328,6 +328,23 @@ def save_locally(catalog: pystac.Catalog, output_dir: Path) -> None:
         log.info("  %s  (%d bytes)", f.relative_to(output_dir), f.stat().st_size)
 
 
+def write_geoparquet(catalog: pystac.Catalog, output_dir: Path) -> Path:
+    """Write all catalog items to a stac-geoparquet file readable by rustac."""
+    import asyncio
+    import rustac.geoparquet
+
+    items = [item.to_dict() for item in catalog.get_items()]
+    out_path = output_dir / "catalog.parquet"
+
+    async def _write():
+        async with rustac.geoparquet.geoparquet_writer(items, str(out_path)):
+            pass  # all items passed at open time
+
+    asyncio.run(_write())
+    log.info("GeoParquet written: %s (%d bytes)", out_path.name, out_path.stat().st_size)
+    return out_path
+
+
 def upload_to_s3(
     output_dir: Path,
     catalog_bucket: str,
@@ -336,11 +353,12 @@ def upload_to_s3(
 ) -> None:
     fs = s3fs.S3FileSystem(profile=profile)
     log.info("\nUploading to s3://%s/%s ...", catalog_bucket, catalog_prefix)
-    for local_file in sorted(output_dir.rglob("*.json")):
-        rel = local_file.relative_to(output_dir)
-        s3_dest = f"{catalog_bucket}/{catalog_prefix}/{rel}"
-        fs.put(str(local_file), s3_dest)
-        log.info("  %s  →  s3://%s", rel, s3_dest)
+    for pattern in ("**/*.json", "*.parquet"):
+        for local_file in sorted(output_dir.glob(pattern)):
+            rel = local_file.relative_to(output_dir)
+            s3_dest = f"{catalog_bucket}/{catalog_prefix}/{rel}"
+            fs.put(str(local_file), s3_dest)
+            log.info("  %s  →  s3://%s", rel, s3_dest)
 
 
 def publish_to_github_pages(
@@ -410,6 +428,8 @@ def main() -> None:
                         help="Local dir to write JSON (default: temp dir)")
     parser.add_argument("--no-upload",       action="store_true",
                         help="Skip S3 upload (build and save locally only)")
+    parser.add_argument("--geoparquet",      action="store_true",
+                        help="Generate catalog.parquet (stac-geoparquet) alongside JSON")
     parser.add_argument("--github-pages",    type=Path, default=None,
                         metavar="DIR",
                         help="Local path to a GitHub Pages git clone. "
@@ -444,6 +464,9 @@ def main() -> None:
     log.info("\nBuilt %d STAC items.", n_items)
 
     save_locally(catalog, output_dir)
+
+    if args.geoparquet:
+        write_geoparquet(catalog, output_dir)
 
     if args.no_upload:
         log.info("--no-upload set, skipping S3 upload.")
