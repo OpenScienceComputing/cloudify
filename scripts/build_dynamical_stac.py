@@ -40,6 +40,7 @@ import argparse
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,6 +62,21 @@ import yaml
 from cloudify.stac import build_stac_item_from_icechunk
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Thumbnail timeout
+# ---------------------------------------------------------------------------
+
+THUMBNAIL_TIMEOUT_SECONDS = 60
+
+
+class _ThumbnailTimeout(Exception):
+    pass
+
+
+def _thumbnail_timeout_handler(signum, frame):
+    raise _ThumbnailTimeout()
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -234,6 +250,8 @@ def generate_thumbnail(
         log.warning("  No temperature_2m in %s -- skipping thumbnail", item_id)
         return None
 
+    signal.signal(signal.SIGALRM, _thumbnail_timeout_handler)
+    signal.alarm(THUMBNAIL_TIMEOUT_SECONDS)
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
@@ -348,13 +366,19 @@ def generate_thumbnail(
         log.info("  Thumbnail saved: %s", out_path)
         return out_path
 
+    except _ThumbnailTimeout:
+        log.warning("  Thumbnail timed out after %ds for %s -- skipping",
+                    THUMBNAIL_TIMEOUT_SECONDS, item_id)
+        return None
     except Exception as exc:
         log.warning("  Thumbnail generation failed for %s: %s", item_id, exc)
+        return None
+    finally:
+        signal.alarm(0)  # cancel any remaining alarm
         try:
             plt.close("all")
         except Exception:
             pass
-        return None
 
 
 # ---------------------------------------------------------------------------
