@@ -15,6 +15,9 @@ dependencies:
   - rioxarray
   - pyproj
   - shapely
+  # Visualization
+  - matplotlib
+  - cartopy
   # Cloud storage
   - fsspec
   - s3fs
