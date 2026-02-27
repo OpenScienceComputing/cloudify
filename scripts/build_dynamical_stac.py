@@ -38,12 +38,17 @@ Usage:
 
 import argparse
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import warnings
 from pathlib import Path
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 import icechunk
 import pystac
@@ -84,7 +89,9 @@ DYNAMICAL_PROVIDER = pystac.Provider(
 def fetch_registry_entries() -> list[dict]:
     """Fetch and parse all dynamical-*.yaml entries from the AWS Open Data Registry."""
     log.info("Querying AWS Open Data Registry for dynamical.org datasets ...")
-    resp = requests.get(_REGISTRY_API, timeout=30)
+    token = os.environ.get("GITHUB_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    resp = requests.get(_REGISTRY_API, headers=headers, timeout=30)
     resp.raise_for_status()
     files = [
         f for f in resp.json()
@@ -94,7 +101,7 @@ def fetch_registry_entries() -> list[dict]:
 
     entries = []
     for f in files:
-        raw = requests.get(_REGISTRY_RAW.format(filename=f["name"]), timeout=30)
+        raw = requests.get(_REGISTRY_RAW.format(filename=f["name"]), headers=headers, timeout=30)
         raw.raise_for_status()
         entry = yaml.safe_load(raw.text)
         entry["_filename"] = f["name"]
@@ -206,6 +213,151 @@ def xarray_open_snippet(item_id: str, catalog_url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Thumbnail generation
+# ---------------------------------------------------------------------------
+
+def generate_thumbnail(
+    session,
+    ds: "xr.Dataset",
+    item_id: str,
+    output_dir: Path,
+    temporal_dimension: str,
+) -> "Path | None":
+    """Generate a PNG temperature map thumbnail for a dataset.
+
+    Re-opens the store with dask chunks of size 1 on non-spatial dims so that
+    only the exact slice is fetched from S3, not the full multi-dim zarr chunk.
+
+    Returns the path to the saved PNG, or None if generation fails.
+    """
+    if "temperature_2m" not in ds:
+        log.warning("  No temperature_2m in %s -- skipping thumbnail", item_id)
+        return None
+
+    try:
+        import cartopy.crs as ccrs
+        import cartopy.feature as cfeature
+        import numpy as np
+
+        # Re-open with dask using chunk size 1 on non-spatial dims.
+        # Without this, zarr loads the full stored chunk (which can span many
+        # lead_time / ensemble_member slices = many GB) just to extract one slice.
+        chunks = {d: 1 for d in ds.dims
+                  if d not in ("latitude", "longitude", "x", "y")}
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Numcodecs codecs are not in the Zarr version 3 specification.*",
+            )
+            ds_lazy = xr.open_zarr(
+                session.store, chunks=chunks,
+                consolidated=False, zarr_format=3
+            )
+
+        da = ds_lazy["temperature_2m"]
+        log.info("  [thumb] dims=%s", dict(da.sizes))
+
+        # Select the most recent time slice
+        if temporal_dimension == "init_time" and "init_time" in da.dims:
+            da = da.isel(init_time=-1, lead_time=0)
+        elif temporal_dimension in da.dims:
+            da = da.isel({temporal_dimension: -1})
+
+        # Pick one ensemble member to avoid loading all members
+        if "ensemble_member" in da.dims:
+            da = da.isel(ensemble_member=0)
+
+        # Subsample spatial dims for thumbnail (max ~360x180 points)
+        if "latitude" in da.dims and "longitude" in da.dims:
+            lat_step = max(1, len(da.latitude) // 180)
+            lon_step = max(1, len(da.longitude) // 360)
+            da = da.isel(latitude=slice(None, None, lat_step),
+                         longitude=slice(None, None, lon_step))
+        elif "y" in da.dims and "x" in da.dims:
+            y_step = max(1, len(da.y) // 300)
+            x_step = max(1, len(da.x) // 500)
+            da = da.isel(y=slice(None, None, y_step),
+                         x=slice(None, None, x_step))
+
+        log.info("  [thumb] loading %s values...", dict(da.sizes))
+
+        # .compute() with dask fetches only the chunks we need
+        data_c = da.compute().values - 273.15
+        log.info("  [thumb] loaded shape=%s  min=%.1f max=%.1f",
+                 data_c.shape, data_c.min(), data_c.max())
+
+        is_projected = "x" in ds.dims and "y" in ds.dims
+
+        if is_projected:
+            proj = ccrs.LambertConformal(
+                central_longitude=-97.5, central_latitude=38.5
+            )
+            fig, ax = plt.subplots(
+                figsize=(10, 6), subplot_kw={"projection": proj}
+            )
+            lons = da["longitude"].compute().values
+            lats = da["latitude"].compute().values
+            img = ax.pcolormesh(
+                lons, lats, data_c,
+                cmap="RdBu_r", vmin=-40, vmax=40,
+                transform=ccrs.PlateCarree(),
+                shading="auto",
+            )
+            ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+            ax.add_feature(cfeature.STATES, linewidth=0.3)
+            ax.set_extent([-130, -60, 20, 55], crs=ccrs.PlateCarree())
+        else:
+            proj = ccrs.PlateCarree()
+            fig, ax = plt.subplots(
+                figsize=(10, 5), subplot_kw={"projection": proj}
+            )
+            # Determine lon/lat coordinate names
+            lon_name = "longitude" if "longitude" in da.dims else "lon"
+            lat_name = "latitude" if "latitude" in da.dims else "lat"
+            lons = da[lon_name].values
+            lats = da[lat_name].values
+            img = ax.pcolormesh(
+                lons, lats, data_c,
+                cmap="RdBu_r", vmin=-40, vmax=40,
+                transform=proj,
+                shading="auto",
+            )
+            ax.set_global()
+            ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+
+        plt.colorbar(img, ax=ax, orientation="horizontal", pad=0.04,
+                     label="2m Temperature (°C)", shrink=0.7)
+
+        # Build timestamp string for title
+        try:
+            ts_val = da[temporal_dimension].values if temporal_dimension in da.coords else None
+            ts_str = str(np.datetime_as_string(ts_val, unit="h")) if ts_val is not None else ""
+        except Exception:
+            ts_str = ""
+
+        title = item_id
+        if ts_str:
+            title += f"  |  {ts_str}"
+        ax.set_title(title, fontsize=9)
+
+        thumb_dir = output_dir / "thumbnails"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        out_path = thumb_dir / f"{item_id}.png"
+        fig.savefig(out_path, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+        log.info("  Thumbnail saved: %s", out_path)
+        return out_path
+
+    except Exception as exc:
+        log.warning("  Thumbnail generation failed for %s: %s", item_id, exc)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Per-store item building
 # ---------------------------------------------------------------------------
 
@@ -215,6 +367,8 @@ def build_item_for_store(
     region: str,
     entry: dict,
     catalog_url: str,
+    output_dir: "Path | None" = None,
+    thumbnail_url_base: "str | None" = None,
 ) -> dict | None:
     """Open one icechunk store and return a STAC item dict, or None on failure."""
     store_uri = f"s3://{bucket}/{prefix}"
@@ -266,6 +420,17 @@ def build_item_for_store(
         return None
 
     log.info("  Built item: %s  bbox=%s", item_id, item_dict["bbox"])
+
+    if output_dir and thumbnail_url_base:
+        thumb_path = generate_thumbnail(session, ds, item_id, output_dir, temporal_dim)
+        if thumb_path:
+            item_dict["assets"]["thumbnail"] = {
+                "href": f"{thumbnail_url_base}/{item_id}.png",
+                "type": "image/png",
+                "roles": ["thumbnail"],
+                "title": "Latest 2m temperature map",
+            }
+
     return item_dict
 
 
@@ -277,9 +442,14 @@ def build_catalog(
     catalog_bucket: str,
     catalog_prefix: str,
     public_domain: str,
-) -> tuple[pystac.Catalog, str]:
+    output_dir: "Path | None" = None,
+) -> "tuple[pystac.Catalog, str]":
     """Discover all stores, build items, return (catalog, catalog_url)."""
     catalog_url = f"https://{public_domain}/{catalog_prefix}/catalog.json"
+    thumbnail_url_base = (
+        f"https://{public_domain}/{catalog_prefix}/thumbnails"
+        if output_dir else None
+    )
 
     catalog = pystac.Catalog(
         id="dynamical-org-icechunk",
@@ -308,7 +478,9 @@ def build_catalog(
 
         for prefix in prefixes:
             item_dict = build_item_for_store(
-                bucket, prefix, region, entry, catalog_url
+                bucket, prefix, region, entry, catalog_url,
+                output_dir=output_dir,
+                thumbnail_url_base=thumbnail_url_base,
             )
             if item_dict:
                 catalog.add_item(pystac.Item.from_dict(item_dict))
@@ -353,7 +525,7 @@ def upload_to_s3(
 ) -> None:
     fs = s3fs.S3FileSystem(profile=profile)
     log.info("\nUploading to s3://%s/%s ...", catalog_bucket, catalog_prefix)
-    for pattern in ("**/*.json", "*.parquet"):
+    for pattern in ("**/*.json", "*.parquet", "thumbnails/*.png"):
         for local_file in sorted(output_dir.glob(pattern)):
             rel = local_file.relative_to(output_dir)
             s3_dest = f"{catalog_bucket}/{catalog_prefix}/{rel}"
@@ -438,6 +610,8 @@ def main() -> None:
                              "GitHub Pages hostname (e.g. myorg.github.io/myrepo).")
     parser.add_argument("--github-pages-push", action="store_true",
                         help="Auto git-push after committing to the GitHub Pages repo.")
+    parser.add_argument("--thumbnails",      action="store_true",
+                        help="Generate temperature thumbnails and upload to R2")
     parser.add_argument("-v", "--verbose",   action="store_true")
     args = parser.parse_args()
 
@@ -455,6 +629,7 @@ def main() -> None:
         catalog_bucket=args.catalog_bucket,
         catalog_prefix=args.catalog_prefix,
         public_domain=args.public_domain,
+        output_dir=output_dir if args.thumbnails else None,
     )
 
     n_items = len(list(catalog.get_items()))

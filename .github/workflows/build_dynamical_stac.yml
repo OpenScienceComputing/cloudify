@@ -32,10 +32,13 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
 
       - name: Build catalog and publish to R2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           micromamba run -n cloudify-notebooks python scripts/build_dynamical_stac.py \
             --catalog-bucket osc-pub \
             --catalog-prefix stac/dynamical \
             --profile osc-pub-r2 \
             --public-domain r2-pub.openscicomp.io \
-            --geoparquet
+            --geoparquet \
+            --thumbnails
